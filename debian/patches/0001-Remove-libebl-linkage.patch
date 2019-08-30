@@ -1,0 +1,22 @@
+From: Louis Bouchard <louis.bouchard@ubuntu.com>
+Date: Mon, 17 Dec 2018 15:21:09 -0200
+Subject: Remove libebl from link options
+
+Description: Remove libebl from link options
+---
+ Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/Makefile b/Makefile
+index ea3c47d..3123b5f 100644
+--- a/Makefile
++++ b/Makefile
+@@ -51,7 +51,7 @@ OBJ_PART=$(patsubst %.c,%.o,$(SRC_PART))
+ SRC_ARCH = arch/arm.c arch/arm64.c arch/x86.c arch/x86_64.c arch/ia64.c arch/ppc64.c arch/s390x.c arch/ppc.c arch/sparc64.c
+ OBJ_ARCH=$(patsubst %.c,%.o,$(SRC_ARCH))
+ 
+-LIBS = -ldw -lbz2 -lebl -ldl -lelf -lz
++LIBS = -ldw -lbz2 -ldl -lelf -lz
+ ifneq ($(LINKTYPE), dynamic)
+ LIBS := -static $(LIBS)
+ endif
