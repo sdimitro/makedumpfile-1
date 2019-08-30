@@ -1337,6 +1337,7 @@ struct DumpInfo {
 	int		vmemmap_cnt;
 	struct ppc64_vmemmap	*vmemmap_list;
 	unsigned long	kaslr_offset;
+	unsigned long	private_page_filter;
 
 	/*
 	 * page table info for ppc64
@@ -2358,6 +2359,7 @@ struct elf_prstatus {
 #define OPT_WORKING_DIR         OPT_START+15
 #define OPT_NUM_THREADS         OPT_START+16
 #define OPT_PARTIAL_DMESG       OPT_START+17
+#define OPT_PRIVATE_PAGE_FILTER OPT_START+18
 
 /*
  * Function Prototype.

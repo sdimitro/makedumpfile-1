@@ -85,6 +85,7 @@ mdf_pfn_t pfn_zero;
 mdf_pfn_t pfn_memhole;
 mdf_pfn_t pfn_cache;
 mdf_pfn_t pfn_cache_private;
+mdf_pfn_t pfn_private_filter_pages;
 mdf_pfn_t pfn_user;
 mdf_pfn_t pfn_free;
 mdf_pfn_t pfn_hwpoison;
@@ -261,6 +262,15 @@ is_cache_page(unsigned long flags)
 	 */
 	if ((NUMBER(PG_swapbacked) == NOT_FOUND_NUMBER || isSwapBacked(flags))
 	    && isSwapCache(flags))
+		return TRUE;
+
+	return FALSE;
+}
+
+static int
+is_filtered_page(unsigned long filter, unsigned long flags, unsigned long private)
+{
+	if (isPrivate(flags) && private == filter)
 		return TRUE;
 
 	return FALSE;
@@ -6027,6 +6037,13 @@ __exclude_unnecessary_pages(unsigned long mem_map,
 				pfn_counter = &pfn_cache;
 		}
 		/*
+		 * Exclude private filter pages
+		 */
+		else if ((info->dump_level & DL_EXCLUDE_CACHE_PRI)
+		    && is_filtered_page(info->private_page_filter, flags, private)) {
+			pfn_counter = &pfn_private_filter_pages;
+		}
+		/*
 		 * Exclude the data page of the user process.
 		 *  - anonymous pages
 		 *  - hugetlbfs pages
@@ -7523,6 +7540,7 @@ write_elf_pages_cyclic(struct cache_data *cd_header, struct cache_data *cd_page)
 	if (info->flag_cyclic) {
 		pfn_zero = pfn_cache = pfn_cache_private = 0;
 		pfn_user = pfn_free = pfn_hwpoison = 0;
+		pfn_private_filter_pages = 0;
 		pfn_memhole = info->max_mapnr;
 	}
 
@@ -8805,6 +8823,7 @@ write_kdump_pages_and_bitmap_cyclic(struct cache_data *cd_header, struct cache_d
 		 */
 		pfn_zero = pfn_cache = pfn_cache_private = 0;
 		pfn_user = pfn_free = pfn_hwpoison = 0;
+		pfn_private_filter_pages = 0;
 		pfn_memhole = info->max_mapnr;
 
 		/*
@@ -9749,7 +9768,7 @@ print_report(void)
 	pfn_original = info->max_mapnr - pfn_memhole;
 
 	pfn_excluded = pfn_zero + pfn_cache + pfn_cache_private
-	    + pfn_user + pfn_free + pfn_hwpoison;
+	    + pfn_user + pfn_free + pfn_hwpoison + pfn_private_filter_pages;
 	shrinking = (pfn_original - pfn_excluded) * 100;
 	shrinking = shrinking / pfn_original;
 
@@ -9760,6 +9779,9 @@ print_report(void)
 	REPORT_MSG("    Non-private cache pages : 0x%016llx\n", pfn_cache);
 	REPORT_MSG("    Private cache pages     : 0x%016llx\n",
 	    pfn_cache_private);
+	if (pfn_private_filter_pages != 0)
+		REPORT_MSG("    private filter pages : 0x%016llx\n",
+		    pfn_private_filter_pages);
 	REPORT_MSG("    User process data pages : 0x%016llx\n", pfn_user);
 	REPORT_MSG("    Free pages              : 0x%016llx\n", pfn_free);
 	REPORT_MSG("    Hwpoison pages          : 0x%016llx\n", pfn_hwpoison);
@@ -9790,7 +9812,7 @@ print_mem_usage(void)
 	pfn_original = info->max_mapnr - pfn_memhole;
 
 	pfn_excluded = pfn_zero + pfn_cache + pfn_cache_private
-	    + pfn_user + pfn_free + pfn_hwpoison;
+	    + pfn_user + pfn_free + pfn_hwpoison + pfn_private_filter_pages;
 	shrinking = (pfn_original - pfn_excluded) * 100;
 	shrinking = shrinking / pfn_original;
 	total_size = info->page_size * pfn_original;
@@ -9804,6 +9826,9 @@ print_mem_usage(void)
 	    pfn_cache);
 	MSG("PRI_CACHE	%-16llu	yes		Cache pages with private flag\n",
 	    pfn_cache_private);
+	if (pfn_private_filter_pages != 0)
+		MSG("FILTERED 	%-16llu	yes		private filter pages\n",
+		    pfn_private_filter_pages);
 	MSG("USER		%-16llu	yes		User process pages\n", pfn_user);
 	MSG("FREE		%-16llu	yes		Free pages\n", pfn_free);
 	MSG("KERN_DATA	%-16llu	no		Dumpable kernel data \n",
@@ -11273,6 +11298,7 @@ static struct option longopts[] = {
 	{"splitblock-size", required_argument, NULL, OPT_SPLITBLOCK_SIZE},
 	{"work-dir", required_argument, NULL, OPT_WORKING_DIR},
 	{"num-threads", required_argument, NULL, OPT_NUM_THREADS},
+	{"private-page-filter", required_argument, NULL, OPT_PRIVATE_PAGE_FILTER},
 	{0, 0, 0, 0}
 };
 
@@ -11408,6 +11434,22 @@ main(int argc, char *argv[])
 			break;
 		case OPT_EXCLUDE_XEN_DOM:
 			info->flag_exclude_xen_dom = 1;
+			break;
+		case OPT_PRIVATE_PAGE_FILTER:
+			if (info->private_page_filter != 0) {
+				MSG("Only one private filter can be specified\n");
+				MSG("Try `makedumpfile --help' for more information.\n");
+				goto out;
+			} else {
+				char *endp;
+
+				info->private_page_filter = strtoul(optarg, &endp, 0);
+				if (*endp || errno != 0 || info->private_page_filter == 0) {
+					MSG("filter must be a non-zero number\n");
+					goto out;
+				}
+			}
+			MSG("Page filter: 0x%lx\n", info->private_page_filter);
 			break;
 		case OPT_VMLINUX:
 			info->name_vmlinux = optarg;
