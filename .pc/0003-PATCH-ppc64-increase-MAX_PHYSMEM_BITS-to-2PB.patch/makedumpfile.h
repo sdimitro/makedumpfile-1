@@ -195,7 +195,7 @@ isAnon(unsigned long mapping)
  *  2. it has been verified that (1UL<<2) was never set, so it is
  *     safe to mask that bit off even in old kernels.
  */
-#define SECTION_MAP_LAST_BIT	(1UL<<4)
+#define SECTION_MAP_LAST_BIT	(1UL<<3)
 #define SECTION_MAP_MASK	(~(SECTION_MAP_LAST_BIT-1))
 #define NR_SECTION_ROOTS()	divideup(num_section, SECTIONS_PER_ROOT())
 #define SECTION_NR_TO_PFN(sec)	((sec) << PFN_SECTION_SHIFT())
@@ -617,7 +617,6 @@ unsigned long get_kvbase_arm64(void);
 #define VMEMMAP_END_5LEVEL	(0xffd5ffffffffffff) /* 5-level page table */
 
 #define __START_KERNEL_map	(0xffffffff80000000)
-#define KERNEL_IMAGE_SIZE_KASLR_ORIG	(1024*1024*1024) /* 3.14, or later */
 #define KVBASE			PAGE_OFFSET
 #define _SECTION_SIZE_BITS	(27)
 #define _MAX_PHYSMEM_BITS_ORIG		(40)
@@ -673,7 +672,6 @@ unsigned long get_kvbase_arm64(void);
 #define _MAX_PHYSMEM_BITS_ORIG  (44)
 #define _MAX_PHYSMEM_BITS_3_7   (46)
 #define _MAX_PHYSMEM_BITS_4_19  (47)
-#define _MAX_PHYSMEM_BITS_4_20  (51)
 #define REGION_SHIFT            (60UL)
 #define VMEMMAP_REGION_ID       (0xfUL)
 
@@ -1339,7 +1337,6 @@ struct DumpInfo {
 	int		vmemmap_cnt;
 	struct ppc64_vmemmap	*vmemmap_list;
 	unsigned long	kaslr_offset;
-	unsigned long	private_page_filter;
 
 	/*
 	 * page table info for ppc64
@@ -1934,7 +1931,6 @@ struct number_table {
 	long	MAX_PHYSMEM_BITS;
 	long    HUGETLB_PAGE_DTOR;
 	long	phys_base;
-	long	KERNEL_IMAGE_SIZE;
 #ifdef __aarch64__
 	long 	VA_BITS;
 	unsigned long	PHYS_OFFSET;
@@ -2362,7 +2358,6 @@ struct elf_prstatus {
 #define OPT_WORKING_DIR         OPT_START+15
 #define OPT_NUM_THREADS         OPT_START+16
 #define OPT_PARTIAL_DMESG       OPT_START+17
-#define OPT_PRIVATE_PAGE_FILTER OPT_START+18
 
 /*
  * Function Prototype.

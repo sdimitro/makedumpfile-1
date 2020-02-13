@@ -1,3 +1,38 @@
+makedumpfile (1:1.6.5-1ubuntu1~18.04.4) bionic; urgency=medium
+
+  [ Thadeu Lima de Souza Cascardo ]
+  * Fixes for DLPAR cpu add operation (LP: #1828596)
+    - d/kdump-config.in: Add a reload command.
+    - d/kdump-config.in: implement try-reload.
+    - d/50-kdump-tools.rules: Use kdump-config reload after cpu or memory hotplug
+    - d/50-kdump-tools.rules: use try-reload instead.
+  * d/rules: Use reset_devices as a cmdline parameter. (LP: #1800566)
+
+  [ Guilherme G. Piccoli ]
+  * d/kdump-tools-dump.service: Add a systemd-resolved service dependency
+    in order to make kdump-tool able to resolve DNS when in kdump boot.
+    (LP: #1856323)
+  * Fix an error due to makedumpfile being out-of-sync with recent kernels.
+    (LP: #1857616)
+    - d/p/0004-x86_64-fix-get_kaslr_offset_x86_64-to-return-kaslr_offset-correctly.patch
+    - d/p/0005-Increase-SECTION_MAP_LAST_BIT-to-4.patch
+
+ -- Guilherme G. Piccoli <gpiccoli@canonical.com>  Fri, 03 Jan 2020 13:14:39 -0300
+
+makedumpfile (1:1.6.5-1ubuntu1~18.04.3) bionic; urgency=medium
+
+  [ Guilherme G. Piccoli ]
+  * Add kdump retry/delay mechanism when dumping over network (LP: #1681909)
+
+  [ Thadeu Lima de Souza Cascardo ]
+  * Use maxcpus instead of nr_cpus on ppc64el. (LP: #1828597)
+  * ppc64: increase MAX_PHYSMEM_BITS to 2PB (LP: #1841288)
+
+  [ Connor Kuehl ]
+  * Let the kernel decide the crashkernel offset for ppc64el (LP: #1741860)
+
+ -- Thadeu Lima de Souza Cascardo <cascardo@canonical.com>  Wed, 09 Oct 2019 15:38:08 -0300
+
 makedumpfile (1:1.6.5-1ubuntu1~18.04.1) bionic; urgency=low
 
   * Backport back to bionic. (LP: #1655280) (LP: #1790788)

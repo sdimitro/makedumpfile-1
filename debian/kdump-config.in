@@ -50,6 +50,8 @@ KDUMP_DIR="/var/lib/kdump"
 KDUMP_NUM_DUMPS=${KDUMP_NUM_DUMPS:=0}
 NFS_TIMEO=${NFS_TIMEO:=600}
 NFS_RETRANS=${NFS_RETRANS:=3}
+NFS_MOUNT_RETRY=${NFS_MOUNT_RETRY:=4}
+SSH_KDUMP_RETRY=${SSH_KDUMP_RETRY:=16}
 MAKEDUMP_ARGS=${MAKEDUMP_ARGS:="-c -d 31"}
 KDUMP_CMDLINE_APPEND=${KDUMP_CMDLINE_APPEND:="@KDUMP_CMDLINE_APPEND@"}
 KDUMP_KERNEL_HOOK="/etc/kernel/postinst.d/kdump-tools"
@@ -63,6 +65,7 @@ sys_kexec_crash=/sys/kernel/kexec_crash_loaded
 sys_fadump_enabled=/sys/kernel/fadump_enabled
 sys_fadump_registered=/sys/kernel/fadump_registered
 kexec_cmd_file=$KDUMP_COREDIR/kexec_cmd
+lock_file=$KDUMP_COREDIR/kdump_lock
 
 # DUMP_MODE = kdump/fadump
 # The default dump mode is kdump.
@@ -647,8 +650,21 @@ function kdump_save_core()
 	#
 	if [ -n "$NFS" ];then
 		log_action_msg "Mounting NFS mountpoint $NFS ..."
-		mount -t nfs -o nolock -o tcp -o soft -o timeo=${NFS_TIMEO} -o retrans=${NFS_RETRANS} $NFS $KDUMP_COREDIR
-		ERROR=$?
+		MOUNTOPTS="-o nolock -o tcp -o soft -o timeo=${NFS_TIMEO} -o retrans=${NFS_RETRANS}"
+
+		CNT=${NFS_MOUNT_RETRY}
+		while [ $CNT -ne 0 ];do
+			mount -t nfs $MOUNTOPTS $NFS $KDUMP_COREDIR
+			ERROR=$?
+			if [ $ERROR -eq 0 ];then
+				CNT=0
+			else
+				((CNT--))
+				log_action_msg "Network not reachable; will try $CNT more times"
+				sleep 3
+			fi
+		done
+
 		if [ $ERROR -ne 0 ];then
 			log_failure_msg "$NAME: Unable to mount remote NFS directory $NFS. Cannot save core"
 			logger -t $NAME "Unable to mount remote NFS directory $NFS. Cannot save core"
@@ -759,14 +775,23 @@ function kdump_save_core_to_ssh()
 	KDUMP_COREFILE="$KDUMP_STAMPDIR/dump.$KDUMP_STAMP"
 	KDUMP_TMPDMESG="/tmp/dmesg.$KDUMP_STAMP"
 	KDUMP_DMESGFILE="$KDUMP_STAMPDIR/dmesg.$KDUMP_STAMP"
-	ERROR=0
 
-	ssh -i $KDUMP_SSH_KEY $KDUMP_REMOTE_HOST mkdir -p $KDUMP_STAMPDIR
-	ERROR=$?
-	# If remote connections fails, no need to continue
-	if [ $ERROR -ne 0 ] ; then
-		log_failure_msg "$NAME: Unable to reach remote server $KDUMP_REMOTE_HOST. No reason to continue"
-		logger -t $NAME "Unable to reach remote server $KDUMP_REMOTE_HOST. No reason to continue"
+	CNT=${SSH_KDUMP_RETRY}
+	while [ $CNT -ne 0 ];do
+		ssh -i $KDUMP_SSH_KEY $KDUMP_REMOTE_HOST mkdir -p $KDUMP_STAMPDIR
+		ERROR=$?
+		if [ $ERROR -eq 0 ];then
+			CNT=0
+		else
+			((CNT--))
+			log_action_msg "Network not reachable; will try $CNT more times"
+			sleep 3
+		fi
+	done
+
+	if [ $ERROR -ne 0 ]; then
+		log_failure_msg "$NAME: Unable to reach remote server $KDUMP_REMOTE_HOST; can't continue"
+		logger -t $NAME "Unable to reach remote server $KDUMP_REMOTE_HOST; can't continue"
 		return 1
 	fi
 
@@ -867,7 +892,47 @@ function kdump_propagate()
 
 }
 
+load()
+{
+	if [ "$DUMP_MODE" == "fadump" ]; then
+		check_fadump_support;
+		fadump_register
+	else
+		check_kdump_support;
+		kdump_create_symlinks $KVER;
+		manage_symlinks;
+		locate_kdump_kernel;
+		kdump_load
+	fi
+}
 
+unload()
+{
+	if [ "$DUMP_MODE" == "fadump" ]; then
+		fadump_unregister
+	else
+		kdump_unload
+	fi
+}
+
+reload()
+{
+	unload
+	load
+}
+
+condreload()
+{
+	local sys_loaded="$sys_kexec_crash"
+	if [ "$DUMP_MODE" == "fadump" ] ; then
+		check_fadump_support
+		sys_loaded="$sys_fadump_registered"
+	fi
+	flock 9
+	if [ -e $sys_loaded -a `cat $sys_loaded` -eq 1 ] ; then
+		reload
+	fi
+}
 
 case "$1" in
   test)
@@ -892,23 +957,16 @@ case "$1" in
 	kdump_show
 	;;
   load)
-	if [ "$DUMP_MODE" == "fadump" ]; then
-		check_fadump_support;
-		fadump_register
-	else
-		check_kdump_support;
-		kdump_create_symlinks $KVER;
-		manage_symlinks;
-		locate_kdump_kernel;
-		kdump_load
-	fi
+	load
 	;;
   unload)
-	if [ "$DUMP_MODE" == "fadump" ]; then
-		fadump_unregister
-	else
-		kdump_unload
-	fi
+	unload
+	;;
+  reload)
+	reload
+	;;
+  condreload|try-reload)
+	condreload 9>$lock_file
 	;;
   status)
 	if [ "$DUMP_MODE" == "fadump" ]; then

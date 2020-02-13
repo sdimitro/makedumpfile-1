@@ -7,13 +7,13 @@ else
 	SUBSTVARS = -Vdist:Depends="kexec-tools"
 endif
 
-KDUMP_CMDLINE_APPEND = nr_cpus=1 systemd.unit=kdump-tools-dump.service
+KDUMP_CMDLINE_APPEND = reset_devices systemd.unit=kdump-tools-dump.service
 ifeq ($(DEB_HOST_ARCH),arm64)
-	# pass
+	KDUMP_CMDLINE_APPEND += nr_cpus=1
 else ifeq ($(DEB_HOST_ARCH),ppc64el)
-	KDUMP_CMDLINE_APPEND += irqpoll noirqdistrib nousb
+	KDUMP_CMDLINE_APPEND += maxcpus=1 irqpoll noirqdistrib nousb
 else
-	KDUMP_CMDLINE_APPEND += irqpoll nousb ata_piix.prefer_ms_hyperv=0
+	KDUMP_CMDLINE_APPEND += nr_cpus=1 irqpoll nousb ata_piix.prefer_ms_hyperv=0
 endif
 
 %:
