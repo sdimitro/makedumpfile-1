@@ -3,3 +3,4 @@
 0003-PATCH-ppc64-increase-MAX_PHYSMEM_BITS-to-2PB.patch
 0004-x86_64-fix-get_kaslr_offset_x86_64-to-return-kaslr_offset-correctly.patch
 0005-Increase-SECTION_MAP_LAST_BIT-to-4.patch
+0006-align_PMD_SECTION_MASK_with_PHYS_MASK.patch
