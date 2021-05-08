@@ -1,3 +1,13 @@
+makedumpfile (1:1.6.5-1ubuntu1~18.04.6) bionic; urgency=medium
+
+  * Fix makedumpfile failure on arm64 with 5.4 kernels (LP: #1879214)
+    -d/p/0007-PATCH-arm64-Add-support-for-ARMv8.2-LPA-52-bit-PA-su.patch
+    -d/p/0008-PATCH-1-3-Use-vmcoreinfo-note-in-proc-kcore-for-mem-.patch
+    -d/p/0009-PATCH-2-3-arm64-Make-use-of-NUMBER-VA_BITS-in-vmcore.patch
+    -d/p/0010-PATCH-3-3-arm64-support-flipped-VA-and-52-bit-kernel.patch
+
+ -- Ioanna Alifieraki <ioanna-maria.alifieraki@canonical.com>  Thu, 15 Apr 2021 22:27:56 +0300
+
 makedumpfile (1:1.6.5-1ubuntu1~18.04.5) bionic; urgency=medium
 
   * d/p/0006-align_PMD_SECTION_MASK_with_PHYS_MASK.patch (LP: #1869465) 

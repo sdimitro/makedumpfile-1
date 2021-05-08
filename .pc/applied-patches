@@ -4,3 +4,7 @@
 0004-x86_64-fix-get_kaslr_offset_x86_64-to-return-kaslr_offset-correctly.patch
 0005-Increase-SECTION_MAP_LAST_BIT-to-4.patch
 0006-align_PMD_SECTION_MASK_with_PHYS_MASK.patch
+0007-PATCH-arm64-Add-support-for-ARMv8.2-LPA-52-bit-PA-su.patch
+0008-PATCH-1-3-Use-vmcoreinfo-note-in-proc-kcore-for-mem-.patch
+0009-PATCH-2-3-arm64-Make-use-of-NUMBER-VA_BITS-in-vmcore.patch
+0010-PATCH-3-3-arm64-support-flipped-VA-and-52-bit-kernel.patch
