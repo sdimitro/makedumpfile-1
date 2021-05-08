@@ -2293,7 +2293,6 @@ write_vmcoreinfo_data(void)
 	WRITE_NUMBER("HUGETLB_PAGE_DTOR", HUGETLB_PAGE_DTOR);
 #ifdef __aarch64__
 	WRITE_NUMBER("VA_BITS", VA_BITS);
-	/* WRITE_NUMBER("TCR_EL1_T1SZ", TCR_EL1_T1SZ); should not exists */
 	WRITE_NUMBER_UNSIGNED("PHYS_OFFSET", PHYS_OFFSET);
 	WRITE_NUMBER_UNSIGNED("kimage_voffset", kimage_voffset);
 #endif
@@ -2693,7 +2692,6 @@ read_vmcoreinfo(void)
 	READ_NUMBER("KERNEL_IMAGE_SIZE", KERNEL_IMAGE_SIZE);
 #ifdef __aarch64__
 	READ_NUMBER("VA_BITS", VA_BITS);
-	READ_NUMBER("TCR_EL1_T1SZ", TCR_EL1_T1SZ);
 	READ_NUMBER_UNSIGNED("PHYS_OFFSET", PHYS_OFFSET);
 	READ_NUMBER_UNSIGNED("kimage_voffset", kimage_voffset);
 #endif
@@ -11201,7 +11199,6 @@ int show_mem_usage(void)
 {
 	uint64_t vmcoreinfo_addr, vmcoreinfo_len;
 	struct cycle cycle = {0};
-	int vmcoreinfo = FALSE;
 
 	if (!is_crashkernel_mem_reserved()) {
 		ERRMSG("No memory is reserved for crashkernel!\n");
@@ -11213,21 +11210,8 @@ int show_mem_usage(void)
 	if (!open_files_for_creating_dumpfile())
 		return FALSE;
 
-	if (!get_elf_info(info->fd_memory, info->name_memory))
+	if (!get_elf_loads(info->fd_memory, info->name_memory))
 		return FALSE;
-
-	/*
-	 * /proc/kcore on Linux 4.19 and later kernels have vmcoreinfo note in
-	 * NOTE segment.  See commit 23c85094fe18.
-	 */
-	if (has_vmcoreinfo()) {
-		off_t offset;
-		unsigned long size;
-
-		get_vmcoreinfo(&offset, &size);
-		vmcoreinfo = read_vmcoreinfo_from_vmcore(offset, size, FALSE);
-		DEBUG_MSG("Read vmcoreinfo from NOTE segment: %d\n", vmcoreinfo);
-	}
 
 	if (!get_page_offset())
 		return FALSE;
@@ -11236,13 +11220,11 @@ int show_mem_usage(void)
 	if (!get_phys_base())
 		return FALSE;
 
-	if (!vmcoreinfo) {
-		if (!get_sys_kernel_vmcoreinfo(&vmcoreinfo_addr, &vmcoreinfo_len))
-			return FALSE;
+	if (!get_sys_kernel_vmcoreinfo(&vmcoreinfo_addr, &vmcoreinfo_len))
+		return FALSE;
 
-		if (!set_kcore_vmcoreinfo(vmcoreinfo_addr, vmcoreinfo_len))
-			return FALSE;
-	}
+	if (!set_kcore_vmcoreinfo(vmcoreinfo_addr, vmcoreinfo_len))
+		return FALSE;
 
 	if (!initial())
 		return FALSE;
