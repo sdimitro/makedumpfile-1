@@ -99,7 +99,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  	return (0xffffffffffffffffUL << va_bits);
  }
  
-@@ -423,22 +437,54 @@ get_va_bits_from_stext_arm64(void)
+@@ -382,22 +396,54 @@ get_va_bits_from_stext_arm64(void)
  	return TRUE;
  }
  
@@ -161,7 +161,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  
  	if (!calculate_plat_config()) {
  		ERRMSG("Can't determine platform config values\n");
-@@ -449,7 +495,6 @@ get_machdep_info_arm64(void)
+@@ -408,7 +454,6 @@ get_machdep_info_arm64(void)
  	info->section_size_bits = SECTIONS_SIZE_BITS;
  
  	DEBUG_MSG("kimage_voffset   : %lx\n", kimage_voffset);
@@ -169,7 +169,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  	DEBUG_MSG("section_size_bits: %ld\n", info->section_size_bits);
  
  	return TRUE;
-@@ -484,10 +529,35 @@ get_versiondep_info_arm64(void)
+@@ -443,10 +488,35 @@ get_versiondep_info_arm64(void)
  		return FALSE;
  	}
  
@@ -210,7 +210,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  }
 --- a/makedumpfile.c
 +++ b/makedumpfile.c
-@@ -2293,6 +2293,7 @@ write_vmcoreinfo_data(void)
+@@ -2323,6 +2323,7 @@ write_vmcoreinfo_data(void)
  	WRITE_NUMBER("HUGETLB_PAGE_DTOR", HUGETLB_PAGE_DTOR);
  #ifdef __aarch64__
  	WRITE_NUMBER("VA_BITS", VA_BITS);
@@ -218,7 +218,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  	WRITE_NUMBER_UNSIGNED("PHYS_OFFSET", PHYS_OFFSET);
  	WRITE_NUMBER_UNSIGNED("kimage_voffset", kimage_voffset);
  #endif
-@@ -2692,6 +2693,7 @@ read_vmcoreinfo(void)
+@@ -2729,6 +2730,7 @@ read_vmcoreinfo(void)
  	READ_NUMBER("KERNEL_IMAGE_SIZE", KERNEL_IMAGE_SIZE);
  #ifdef __aarch64__
  	READ_NUMBER("VA_BITS", VA_BITS);
@@ -228,7 +228,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  #endif
 --- a/makedumpfile.h
 +++ b/makedumpfile.h
-@@ -1936,6 +1936,7 @@ struct number_table {
+@@ -1937,6 +1937,7 @@ struct number_table {
  	long	KERNEL_IMAGE_SIZE;
  #ifdef __aarch64__
  	long 	VA_BITS;

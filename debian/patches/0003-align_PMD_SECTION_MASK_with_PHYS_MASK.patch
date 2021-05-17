@@ -19,10 +19,10 @@ Signed-off-by: Michal Suchanek <msuchanek@suse.de>
  arch/arm64.c | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
-Index: makedumpfile-1.6.5/arch/arm64.c
+Index: makedumpfile-1.6.7/arch/arm64.c
 ===================================================================
---- makedumpfile-1.6.5.orig/arch/arm64.c
-+++ makedumpfile-1.6.5/arch/arm64.c
+--- makedumpfile-1.6.7.orig/arch/arm64.c
++++ makedumpfile-1.6.7/arch/arm64.c
 @@ -81,7 +81,7 @@ static unsigned long kimage_voffset;
   * Remove the highest order bits that are not a part of the
   * physical address in a section

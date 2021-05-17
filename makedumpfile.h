@@ -495,7 +495,7 @@ do { \
 #define KVER_MIN_SHIFT 16
 #define KERNEL_VERSION(x,y,z) (((x) << KVER_MAJ_SHIFT) | ((y) << KVER_MIN_SHIFT) | (z))
 #define OLDEST_VERSION		KERNEL_VERSION(2, 6, 15) /* linux-2.6.15 */
-#define LATEST_VERSION		KERNEL_VERSION(4, 19, 4) /* linux-4.19.4 */
+#define LATEST_VERSION		KERNEL_VERSION(5, 4, 8) /* linux-5.4.8 */
 
 /*
  * vmcoreinfo in /proc/vmcore
@@ -542,7 +542,6 @@ do { \
 #ifdef __aarch64__
 unsigned long get_kvbase_arm64(void);
 #define KVBASE			get_kvbase_arm64()
-#define __START_KERNEL_map	(0xffffffff80000000UL)
 
 #endif /* aarch64 */
 
@@ -965,6 +964,7 @@ typedef unsigned long pgd_t;
 static inline int stub_true() { return TRUE; }
 static inline int stub_true_ul(unsigned long x) { return TRUE; }
 static inline int stub_false() { return FALSE; }
+unsigned long get_kaslr_offset_general(unsigned long vaddr);
 #define paddr_to_vaddr_general(X) ((X) + PAGE_OFFSET)
 
 #ifdef __aarch64__
@@ -974,7 +974,6 @@ unsigned long long vaddr_to_paddr_arm64(unsigned long vaddr);
 int get_versiondep_info_arm64(void);
 int get_xen_basic_info_arm64(void);
 int get_xen_info_arm64(void);
-unsigned long get_kaslr_offset_arm64(unsigned long vaddr);
 #define paddr_to_vaddr_arm64(X) (((X) - info->phys_base) | PAGE_OFFSET)
 
 #define find_vmemmap()		stub_false()
@@ -983,7 +982,7 @@ unsigned long get_kaslr_offset_arm64(unsigned long vaddr);
 #define get_phys_base()		get_phys_base_arm64()
 #define get_machdep_info()	get_machdep_info_arm64()
 #define get_versiondep_info()	get_versiondep_info_arm64()
-#define get_kaslr_offset(X)	get_kaslr_offset_arm64(X)
+#define get_kaslr_offset(X)	get_kaslr_offset_general(X)
 #define get_xen_basic_info_arch(X) get_xen_basic_info_arm64(X)
 #define get_xen_info_arch(X) get_xen_info_arm64(X)
 #define is_phys_addr(X)		stub_true_ul(X)
@@ -1076,7 +1075,7 @@ int is_iomem_phys_addr_s390x(unsigned long addr);
 #define get_phys_base()		stub_true()
 #define get_machdep_info()	get_machdep_info_s390x()
 #define get_versiondep_info()	stub_true()
-#define get_kaslr_offset(X)	stub_false()
+#define get_kaslr_offset(X)	get_kaslr_offset_general(X)
 #define vaddr_to_paddr(X)	vaddr_to_paddr_s390x(X)
 #define paddr_to_vaddr(X)	paddr_to_vaddr_general(X)
 #define is_phys_addr(X)		is_iomem_phys_addr_s390x(X)
@@ -1914,6 +1913,7 @@ struct number_table {
 	long	NR_FREE_PAGES;
 	long	N_ONLINE;
 	long	pgtable_l5_enabled;
+	long	sme_mask;
 
 	/*
  	* Page flags
@@ -1929,6 +1929,7 @@ struct number_table {
 	long    PG_hwpoison;
 
 	long	PAGE_BUDDY_MAPCOUNT_VALUE;
+	long	PAGE_OFFLINE_MAPCOUNT_VALUE;
 	long	SECTION_SIZE_BITS;
 	long	MAX_PHYSMEM_BITS;
 	long    HUGETLB_PAGE_DTOR;

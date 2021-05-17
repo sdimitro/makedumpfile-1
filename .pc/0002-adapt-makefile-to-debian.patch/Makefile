@@ -1,18 +1,17 @@
 # makedumpfile
 
-VERSION=1.6.5
-DATE=5 Dec 2018
+VERSION=1.6.7
+DATE=16 Jan 2020
 
 # Honour the environment variable CC
 ifeq ($(strip $CC),)
 CC	= gcc
 endif
 
-CFLAGS = -g -O2 -Wall -D_FILE_OFFSET_BITS=64 \
-	  -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE \
-	  -DVERSION='"$(VERSION)"' -DRELEASE_DATE='"$(DATE)"'
-CFLAGS_ARCH	= -g -O2 -Wall -D_FILE_OFFSET_BITS=64 \
-		    -D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE
+CFLAGS_BASE := $(CFLAGS) -g -O2 -Wall -D_FILE_OFFSET_BITS=64 \
+		-D_LARGEFILE_SOURCE -D_LARGEFILE64_SOURCE
+CFLAGS      := $(CFLAGS_BASE) -DVERSION='"$(VERSION)"' -DRELEASE_DATE='"$(DATE)"'
+CFLAGS_ARCH := $(CFLAGS_BASE)
 # LDFLAGS = -L/usr/local/lib -I/usr/local/include
 
 HOST_ARCH := $(shell uname -m)
@@ -79,6 +78,11 @@ try-run = $(shell set -e;		\
 LINK_TEST_PROG="int clock_gettime(); int main(){ return clock_gettime(); }"
 LIBS := $(LIBS) $(call try-run,\
 	echo $(LINK_TEST_PROG) | $(CC) $(CFLAGS) -o "$$TMP" -x c -,,-lrt)
+
+# elfutils-0.178 or later does not install libebl.a.
+LINK_TEST_PROG="int main() { return 0; }"
+LIBS := $(LIBS) $(call try-run,\
+	echo $(LINK_TEST_PROG) | $(CC) -o "$$TMP" -x c - -lebl,-lebl,)
 
 all: makedumpfile
 

@@ -307,7 +307,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  }
  
  static int calculate_plat_config(void)
-@@ -287,6 +389,14 @@ get_stext_symbol(void)
+@@ -246,6 +348,14 @@ get_stext_symbol(void)
  int
  get_machdep_info_arm64(void)
  {
@@ -322,7 +322,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  	/* Check if va_bits is still not initialized. If still 0, call
  	 * get_versiondep_info() to initialize the same.
  	 */
-@@ -299,12 +409,11 @@ get_machdep_info_arm64(void)
+@@ -258,12 +368,11 @@ get_machdep_info_arm64(void)
  	}
  
  	kimage_voffset = NUMBER(kimage_voffset);
@@ -337,7 +337,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  
  	return TRUE;
  }
-@@ -362,6 +471,19 @@ get_versiondep_info_arm64(void)
+@@ -321,6 +430,19 @@ get_versiondep_info_arm64(void)
  	return TRUE;
  }
  
@@ -357,7 +357,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  /*
   * vaddr_to_paddr_arm64() - translate arbitrary virtual address to physical
   * @vaddr: virtual address to translate
-@@ -399,10 +521,9 @@ vaddr_to_paddr_arm64(unsigned long vaddr
+@@ -358,10 +480,9 @@ vaddr_to_paddr_arm64(unsigned long vaddr
  		return NOT_PADDR;
  	}
  
@@ -371,7 +371,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  		return paddr;
  	}
  
-@@ -412,29 +533,24 @@ vaddr_to_paddr_arm64(unsigned long vaddr
+@@ -371,29 +492,24 @@ vaddr_to_paddr_arm64(unsigned long vaddr
  		return NOT_PADDR;
  	}
  

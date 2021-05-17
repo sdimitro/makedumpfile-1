@@ -20,7 +20,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
 
 --- a/elf_info.c
 +++ b/elf_info.c
-@@ -755,55 +755,6 @@ get_elf32_ehdr(int fd, char *filename, E
+@@ -759,55 +759,6 @@ get_elf32_ehdr(int fd, char *filename, E
  	return TRUE;
  }
  
@@ -88,7 +88,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  
 --- a/makedumpfile.c
 +++ b/makedumpfile.c
-@@ -11199,6 +11199,7 @@ int show_mem_usage(void)
+@@ -11351,6 +11351,7 @@ int show_mem_usage(void)
  {
  	uint64_t vmcoreinfo_addr, vmcoreinfo_len;
  	struct cycle cycle = {0};
@@ -96,7 +96,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  
  	if (!is_crashkernel_mem_reserved()) {
  		ERRMSG("No memory is reserved for crashkernel!\n");
-@@ -11210,9 +11211,22 @@ int show_mem_usage(void)
+@@ -11362,9 +11363,22 @@ int show_mem_usage(void)
  	if (!open_files_for_creating_dumpfile())
  		return FALSE;
  
@@ -120,7 +120,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  	if (!get_page_offset())
  		return FALSE;
  
-@@ -11220,11 +11234,13 @@ int show_mem_usage(void)
+@@ -11372,11 +11386,13 @@ int show_mem_usage(void)
  	if (!get_phys_base())
  		return FALSE;
  

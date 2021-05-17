@@ -68,9 +68,6 @@ case "$1" in
 	UCF_FORCE_CONFFMISS=1 ucf --debconf-ok $INITCONFFILE /etc/default/kdump-tools
 	rm -f $INITCONFFILE
 	sync /etc/default/kdump-tools
-
-        # create smaller initrd.img files for kdump use
-	/etc/kernel/postinst.d/kdump-tools $(uname -r) > /dev/null 2>&1
     ;;
 
     abort-upgrade|abort-remove|abort-deconfigure)
