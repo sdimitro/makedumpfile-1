@@ -8,10 +8,10 @@ Subject: adapt-makefile-to-debian
  1 file changed, 5 insertions(+), 13 deletions(-)
 
 diff --git a/Makefile b/Makefile
-index 3123b5f..1b015b6 100644
+index 388faf7..90d55d9 100644
 --- a/Makefile
 +++ b/Makefile
-@@ -91,26 +91,18 @@ $(OBJ_ARCH): $(SRC_ARCH)
+@@ -95,26 +95,18 @@ $(OBJ_ARCH): $(SRC_ARCH)
  
  makedumpfile: $(SRC_BASE) $(OBJ_PART) $(OBJ_ARCH)
  	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJ_PART) $(OBJ_ARCH) -rdynamic -o $@ $< $(LIBS)

@@ -56,6 +56,14 @@ static void first_cycle(mdf_pfn_t start, mdf_pfn_t max, struct cycle *cycle)
 	if (cycle->end_pfn > max)
 		cycle->end_pfn = max;
 
+	/*
+	 * Mitigate statistics problem in ELF dump mode.
+	 * A cycle must start with a pfn that is divisible by BITPERBYTE.
+	 * See create_bitmap_from_memhole().
+	 */
+	if (info->flag_elf_dumpfile && cycle->start_pfn < start)
+		cycle->start_pfn = round(start, BITPERBYTE);
+
 	cycle->exclude_pfn_start = 0;
 	cycle->exclude_pfn_end = 0;
 }
@@ -88,6 +96,8 @@ mdf_pfn_t pfn_cache_private;
 mdf_pfn_t pfn_user;
 mdf_pfn_t pfn_free;
 mdf_pfn_t pfn_hwpoison;
+mdf_pfn_t pfn_offline;
+mdf_pfn_t pfn_elf_excluded;
 
 mdf_pfn_t num_dumped;
 
@@ -247,6 +257,21 @@ isHugetlb(unsigned long dtor)
 		&& (NUMBER(HUGETLB_PAGE_DTOR) == dtor))
                 || ((SYMBOL(free_huge_page) != NOT_FOUND_SYMBOL)
                     && (SYMBOL(free_huge_page) == dtor));
+}
+
+static int
+isOffline(unsigned long flags, unsigned int _mapcount)
+{
+	if (NUMBER(PAGE_OFFLINE_MAPCOUNT_VALUE) == NOT_FOUND_NUMBER)
+		return FALSE;
+
+	if (flags & (1UL << NUMBER(PG_slab)))
+		return FALSE;
+
+	if (_mapcount == (int)NUMBER(PAGE_OFFLINE_MAPCOUNT_VALUE))
+		return TRUE;
+
+	return FALSE;
 }
 
 static int
@@ -977,6 +1002,8 @@ next_page:
 	read_size = MIN(info->page_size - PAGEOFFSET(paddr), size);
 
 	pgaddr = PAGEBASE(paddr);
+	if (NUMBER(sme_mask) != NOT_FOUND_NUMBER)
+		pgaddr = pgaddr & ~(NUMBER(sme_mask));
 	pgbuf = cache_search(pgaddr, read_size);
 	if (!pgbuf) {
 		++cache_miss;
@@ -2276,6 +2303,7 @@ write_vmcoreinfo_data(void)
 	WRITE_NUMBER("NR_FREE_PAGES", NR_FREE_PAGES);
 	WRITE_NUMBER("N_ONLINE", N_ONLINE);
 	WRITE_NUMBER("pgtable_l5_enabled", pgtable_l5_enabled);
+	WRITE_NUMBER("sme_mask", sme_mask);
 
 	WRITE_NUMBER("PG_lru", PG_lru);
 	WRITE_NUMBER("PG_private", PG_private);
@@ -2287,7 +2315,10 @@ write_vmcoreinfo_data(void)
 	WRITE_NUMBER("PG_hwpoison", PG_hwpoison);
 
 	WRITE_NUMBER("PAGE_BUDDY_MAPCOUNT_VALUE", PAGE_BUDDY_MAPCOUNT_VALUE);
+	WRITE_NUMBER("PAGE_OFFLINE_MAPCOUNT_VALUE",
+		     PAGE_OFFLINE_MAPCOUNT_VALUE);
 	WRITE_NUMBER("phys_base", phys_base);
+	WRITE_NUMBER("KERNEL_IMAGE_SIZE", KERNEL_IMAGE_SIZE);
 
 	WRITE_NUMBER("HUGETLB_PAGE_DTOR", HUGETLB_PAGE_DTOR);
 #ifdef __aarch64__
@@ -2362,12 +2393,15 @@ read_vmcoreinfo_basic_info(void)
 		return FALSE;
 	}
 
+	DEBUG_MSG("VMCOREINFO   :\n");
 	while (fgets(buf, BUFSIZE_FGETS, info->file_vmcoreinfo)) {
 		i = strlen(buf);
 		if (!i)
 			break;
 		if (buf[i - 1] == '\n')
 			buf[i - 1] = '\0';
+
+		DEBUG_MSG("  %s\n", buf);
 		if (strncmp(buf, STR_OSRELEASE, strlen(STR_OSRELEASE)) == 0) {
 			get_release = TRUE;
 			/* if the release have been stored, skip this time. */
@@ -2411,6 +2445,8 @@ read_vmcoreinfo_basic_info(void)
 		    strlen(STR_CONFIG_PGTABLE_4)) == 0)
 			vt.mem_flags |= MEMORY_PAGETABLE_4L;
 	}
+	DEBUG_MSG("\n");
+
 	if (!get_release || !info->page_size) {
 		ERRMSG("Invalid format in %s", info->name_vmcoreinfo);
 		return FALSE;
@@ -2672,6 +2708,7 @@ read_vmcoreinfo(void)
 	READ_NUMBER("NR_FREE_PAGES", NR_FREE_PAGES);
 	READ_NUMBER("N_ONLINE", N_ONLINE);
 	READ_NUMBER("pgtable_l5_enabled", pgtable_l5_enabled);
+	READ_NUMBER("sme_mask", sme_mask);
 
 	READ_NUMBER("PG_lru", PG_lru);
 	READ_NUMBER("PG_private", PG_private);
@@ -2687,7 +2724,9 @@ read_vmcoreinfo(void)
 	READ_SRCFILE("pud_t", pud_t);
 
 	READ_NUMBER("PAGE_BUDDY_MAPCOUNT_VALUE", PAGE_BUDDY_MAPCOUNT_VALUE);
+	READ_NUMBER("PAGE_OFFLINE_MAPCOUNT_VALUE", PAGE_OFFLINE_MAPCOUNT_VALUE);
 	READ_NUMBER("phys_base", phys_base);
+	READ_NUMBER("KERNEL_IMAGE_SIZE", KERNEL_IMAGE_SIZE);
 #ifdef __aarch64__
 	READ_NUMBER("VA_BITS", VA_BITS);
 	READ_NUMBER_UNSIGNED("PHYS_OFFSET", PHYS_OFFSET);
@@ -2836,9 +2875,7 @@ get_numnodes(void)
 	if (!(vt.numnodes = get_nodes_online())) {
 		vt.numnodes = 1;
 	}
-	DEBUG_MSG("\n");
 	DEBUG_MSG("num of NODEs : %d\n", vt.numnodes);
-	DEBUG_MSG("\n");
 
 	return TRUE;
 }
@@ -2968,10 +3005,12 @@ dump_mem_map(mdf_pfn_t pfn_start, mdf_pfn_t pfn_end,
 	mmd->pfn_end   = pfn_end;
 	mmd->mem_map   = mem_map;
 
-	DEBUG_MSG("mem_map (%d)\n", num_mm);
-	DEBUG_MSG("  mem_map    : %lx\n", mem_map);
-	DEBUG_MSG("  pfn_start  : %llx\n", pfn_start);
-	DEBUG_MSG("  pfn_end    : %llx\n", pfn_end);
+	if (num_mm == 0)
+		DEBUG_MSG("%13s %16s %16s %16s\n",
+			"", "mem_map", "pfn_start", "pfn_end");
+
+	DEBUG_MSG("mem_map[%4d] %16lx %16llx %16llx\n",
+		num_mm, mem_map, pfn_start, pfn_end);
 
 	return;
 }
@@ -3561,27 +3600,19 @@ get_mem_map(void)
 
 	switch (get_mem_type()) {
 	case SPARSEMEM:
-		DEBUG_MSG("\n");
-		DEBUG_MSG("Memory type  : SPARSEMEM\n");
-		DEBUG_MSG("\n");
+		DEBUG_MSG("Memory type  : SPARSEMEM\n\n");
 		ret = get_mm_sparsemem();
 		break;
 	case SPARSEMEM_EX:
-		DEBUG_MSG("\n");
-		DEBUG_MSG("Memory type  : SPARSEMEM_EX\n");
-		DEBUG_MSG("\n");
+		DEBUG_MSG("Memory type  : SPARSEMEM_EX\n\n");
 		ret = get_mm_sparsemem();
 		break;
 	case DISCONTIGMEM:
-		DEBUG_MSG("\n");
-		DEBUG_MSG("Memory type  : DISCONTIGMEM\n");
-		DEBUG_MSG("\n");
+		DEBUG_MSG("Memory type  : DISCONTIGMEM\n\n");
 		ret = get_mm_discontigmem();
 		break;
 	case FLATMEM:
-		DEBUG_MSG("\n");
-		DEBUG_MSG("Memory type  : FLATMEM\n");
-		DEBUG_MSG("\n");
+		DEBUG_MSG("Memory type  : FLATMEM\n\n");
 		ret = get_mm_flatmem();
 		break;
 	default:
@@ -3914,6 +3945,66 @@ free_for_parallel()
 	}
 }
 
+unsigned long
+get_kaslr_offset_general(unsigned long vaddr)
+{
+	unsigned int i;
+	char buf[BUFSIZE_FGETS], *endp;
+	static unsigned long _text = NOT_FOUND_SYMBOL;
+	static unsigned long _end = NOT_FOUND_SYMBOL;
+
+	if (!info->kaslr_offset && info->file_vmcoreinfo) {
+		if (fseek(info->file_vmcoreinfo, 0, SEEK_SET) < 0) {
+			ERRMSG("Can't seek the vmcoreinfo file(%s). %s\n",
+				info->name_vmcoreinfo, strerror(errno));
+			return FALSE;
+		}
+
+		while (fgets(buf, BUFSIZE_FGETS, info->file_vmcoreinfo)) {
+			i = strlen(buf);
+			if (!i)
+				break;
+			if (buf[i - 1] == '\n')
+				buf[i - 1] = '\0';
+			if (strncmp(buf, STR_KERNELOFFSET,
+					strlen(STR_KERNELOFFSET)) == 0) {
+				info->kaslr_offset = strtoul(buf +
+					strlen(STR_KERNELOFFSET), &endp, 16);
+				DEBUG_MSG("info->kaslr_offset: %lx\n",
+					info->kaslr_offset);
+			}
+		}
+	}
+	if (!info->kaslr_offset || !vaddr)
+		return 0;
+
+	if (_text == NOT_FOUND_SYMBOL) {
+		/*
+		 * Currently, the return value of this function is used in
+		 * resolve_config_entry() only, and in that case, we must
+		 * have a vmlinux.
+		 */
+		if (info->name_vmlinux) {
+			_text = get_symbol_addr("_text");
+			_end = get_symbol_addr("_end");
+		}
+		DEBUG_MSG("_text: %lx, _end: %lx\n", _text, _end);
+		if (_text == NOT_FOUND_SYMBOL || _end == NOT_FOUND_SYMBOL) {
+			ERRMSG("Cannot determine _text and _end address\n");
+			return FALSE;
+		}
+	}
+
+	/*
+	 * Returns the kaslr offset only if the vaddr needs it to be added,
+	 * i.e. only kernel text address for now.  Otherwise returns 0.
+	 */
+	if (_text <= vaddr && vaddr <= _end)
+		return info->kaslr_offset;
+	else
+		return 0;
+}
+
 int
 find_kaslr_offsets()
 {
@@ -3941,8 +4032,10 @@ find_kaslr_offsets()
 	 * function might need to read from vmcoreinfo, therefore we have
 	 * called this function between open_vmcoreinfo() and
 	 * close_vmcoreinfo()
+	 * And the argument is not needed, because we don't use the return
+	 * value here. So pass it 0 explicitly.
 	 */
-	get_kaslr_offset(SYMBOL(_stext));
+	get_kaslr_offset(0);
 
 	close_vmcoreinfo();
 
@@ -4718,7 +4811,7 @@ exclude_nodata_pages(struct cycle *cycle)
 		if (pfn < cycle->start_pfn)
 			pfn = cycle->start_pfn;
 		if (pfn_end >= cycle->end_pfn)
-			pfn_end = cycle->end_pfn - 1;
+			pfn_end = cycle->end_pfn;
 		while (pfn < pfn_end) {
 			clear_bit_on_2nd_bitmap(pfn, cycle);
 			++pfn;
@@ -6042,6 +6135,12 @@ __exclude_unnecessary_pages(unsigned long mem_map,
 			pfn_counter = &pfn_hwpoison;
 		}
 		/*
+		 * Exclude pages that are logically offline.
+		 */
+		else if (isOffline(flags, _mapcount)) {
+			pfn_counter = &pfn_offline;
+		}
+		/*
 		 * Unexcludable page
 		 */
 		else
@@ -6185,20 +6284,20 @@ init_save_control()
 	flags = O_RDWR|O_CREAT|O_TRUNC;
 	if ((sc.sc_fd = open(sc.sc_filename, flags, S_IRUSR|S_IWUSR)) < 0) {
 		ERRMSG("Can't open the pfn file %s.\n", sc.sc_filename);
-		return FAILED;
+		return FALSE;
 	}
 	unlink(sc.sc_filename);
 
 	sc.sc_buf = malloc(info->page_size);
 	if (!sc.sc_buf) {
 		ERRMSG("Can't allocate a page for pfn buf.\n");
-		return FAILED;
+		return FALSE;
 	}
 	sc.sc_buflen = info->page_size;
 	sc.sc_bufposition = 0;
 	sc.sc_fileposition = 0;
 	sc.sc_filelen = 0;
-	return COMPLETED;
+	return TRUE;
 }
 
 /*
@@ -6215,7 +6314,7 @@ save_deletes(unsigned long startpfn, unsigned long numpfns)
 		if (i != sc.sc_buflen) {
 			ERRMSG("save: Can't write a page to %s\n",
 				sc.sc_filename);
-			return FAILED;
+			return FALSE;
 		}
 		sc.sc_filelen += sc.sc_buflen;
 		sc.sc_bufposition = 0;
@@ -6224,12 +6323,12 @@ save_deletes(unsigned long startpfn, unsigned long numpfns)
 	scp->startpfn = startpfn;
 	scp->numpfns = numpfns;
 	sc.sc_bufposition += sizeof(struct sc_entry);
-	return COMPLETED;
+	return TRUE;
 }
 
 /*
  * Get a starting pfn and number of pfns for delete from bitmap.
- * Return 0 for success, 1 for 'no more'
+ * Return TRUE(1) for success, FALSE(0) for 'no more'
  */
 int
 get_deletes(unsigned long *startpfn, unsigned long *numpfns)
@@ -6238,14 +6337,14 @@ get_deletes(unsigned long *startpfn, unsigned long *numpfns)
 	struct sc_entry *scp;
 
 	if (sc.sc_fileposition >= sc.sc_filelen) {
-		return FAILED;
+		return FALSE;
 	}
 
 	if (sc.sc_bufposition == sc.sc_buflen) {
 		i = read(sc.sc_fd, sc.sc_buf, sc.sc_buflen);
 		if (i <= 0) {
 			ERRMSG("Can't read a page from %s.\n", sc.sc_filename);
-			return FAILED;
+			return FALSE;
 		}
 		sc.sc_bufposition = 0;
 	}
@@ -6254,7 +6353,7 @@ get_deletes(unsigned long *startpfn, unsigned long *numpfns)
 	*numpfns = scp->numpfns;
 	sc.sc_bufposition += sizeof(struct sc_entry);
 	sc.sc_fileposition += sizeof(struct sc_entry);
-	return COMPLETED;
+	return TRUE;
 }
 
 /*
@@ -6262,7 +6361,7 @@ get_deletes(unsigned long *startpfn, unsigned long *numpfns)
  * that represent them.
  *  (pfn ranges are literally start and end, not start and end+1)
  *   see the array of vmemmap pfns and the pfns they represent: gvmem_pfns
- * Return COMPLETED for delete, FAILED for not to delete.
+ * Return TRUE(1) for delete, FALSE(0) for not to delete.
  */
 int
 find_vmemmap_pages(unsigned long startpfn, unsigned long endpfn, unsigned long *vmappfn,
@@ -6287,7 +6386,7 @@ find_vmemmap_pages(unsigned long startpfn, unsigned long endpfn, unsigned long *
 			start_vmemmap_pfn = vmapp->vmap_pfn_start + vmemmap_pfns;
 			*vmappfn = start_vmemmap_pfn;
 
-			npfns_offset = endpfn - vmapp->rep_pfn_start;
+			npfns_offset = (endpfn+1) - vmapp->rep_pfn_start;
 			vmemmap_offset = npfns_offset * size_table.page;
 			// round down to page boundary
 			vmemmap_offset -= (vmemmap_offset % pagesize);
@@ -6295,12 +6394,12 @@ find_vmemmap_pages(unsigned long startpfn, unsigned long endpfn, unsigned long *
 			end_vmemmap_pfn = vmapp->vmap_pfn_start + vmemmap_pfns;
 			npages = end_vmemmap_pfn - start_vmemmap_pfn;
 			if (npages == 0)
-				return FAILED;
+				return FALSE;
 			*nmapnpfns = npages;
-			return COMPLETED;
+			return TRUE;
 		}
 	}
-	return FAILED;
+	return FALSE;
 }
 
 /*
@@ -6331,12 +6430,12 @@ find_unused_vmemmap_pages(void)
 		if (lseek(bitmap1->fd, new_offset1, SEEK_SET) < 0 ) {
 			ERRMSG("Can't seek the bitmap(%s). %s\n",
 				bitmap1->file_name, strerror(errno));
-			return FAILED;
+			return FALSE;
 		}
 		if (read(bitmap1->fd, bitmap1->buf, BUFSIZE_BITMAP) != BUFSIZE_BITMAP) {
 			ERRMSG("Can't read the bitmap(%s). %s\n",
 				bitmap1->file_name, strerror(errno));
-			return FAILED;
+			return FALSE;
 		}
 		bitmap1->no_block = pfn / PFN_BUFBITMAP;
 
@@ -6344,12 +6443,12 @@ find_unused_vmemmap_pages(void)
 		if (lseek(bitmap2->fd, new_offset2, SEEK_SET) < 0 ) {
 			ERRMSG("Can't seek the bitmap(%s). %s\n",
 				bitmap2->file_name, strerror(errno));
-			return FAILED;
+			return FALSE;
 		}
 		if (read(bitmap2->fd, bitmap2->buf, BUFSIZE_BITMAP) != BUFSIZE_BITMAP) {
 			ERRMSG("Can't read the bitmap(%s). %s\n",
 				bitmap2->file_name, strerror(errno));
-			return FAILED;
+			return FALSE;
 		}
 		bitmap2->no_block = pfn / PFN_BUFBITMAP;
 
@@ -6394,12 +6493,11 @@ find_unused_vmemmap_pages(void)
 						endpfn = startpfn +
 							(numwords * BITS_PER_WORD) - 1;
 						if (find_vmemmap_pages(startpfn, endpfn,
-							&vmapstartpfn, &vmapnumpfns) ==
-							COMPLETED) {
-							if (save_deletes(vmapstartpfn,
-								vmapnumpfns) == FAILED) {
+							&vmapstartpfn, &vmapnumpfns)) {
+							if (!save_deletes(vmapstartpfn,
+								vmapnumpfns)) {
 								ERRMSG("save_deletes failed\n");
-								return FAILED;
+								return FALSE;
 							}
 							deleted_pages += vmapnumpfns;
 						}
@@ -6416,11 +6514,10 @@ find_unused_vmemmap_pages(void)
 				   not start and end + 1 */
 				endpfn = startpfn + (numwords * BITS_PER_WORD) - 1;
 				if (find_vmemmap_pages(startpfn, endpfn,
-					&vmapstartpfn, &vmapnumpfns) == COMPLETED) {
-					if (save_deletes(vmapstartpfn, vmapnumpfns)
-						== FAILED) {
+						&vmapstartpfn, &vmapnumpfns)) {
+					if (!save_deletes(vmapstartpfn, vmapnumpfns)) {
 						ERRMSG("save_deletes failed\n");
-						return FAILED;
+						return FALSE;
 					}
 					deleted_pages += vmapnumpfns;
 				}
@@ -6429,7 +6526,7 @@ find_unused_vmemmap_pages(void)
 	}
 	PROGRESS_MSG("\nExcluded %ld unused vmemmap pages\n", deleted_pages);
 
-	return COMPLETED;
+	return TRUE;
 }
 
 /*
@@ -6440,7 +6537,7 @@ delete_unused_vmemmap_pages(void)
 {
 	unsigned long startpfn, numpfns, pfn, i;
 
-	while (get_deletes(&startpfn, &numpfns) == COMPLETED) {
+	while (get_deletes(&startpfn, &numpfns)) {
 		for (i = 0, pfn = startpfn; i < numpfns; i++, pfn++) {
 			clear_bit_on_2nd_bitmap_for_kernel(pfn, (struct cycle *)0);
 			// note that this is never to be used in cyclic mode!
@@ -6468,23 +6565,23 @@ reset_save_control()
 {
 	int i;
 	if (sc.sc_bufposition == 0)
-		return COMPLETED;
+		return TRUE;
 
 	i = write(sc.sc_fd, sc.sc_buf, sc.sc_buflen);
 	if (i != sc.sc_buflen) {
 		ERRMSG("reset: Can't write a page to %s\n",
 			sc.sc_filename);
-		return FAILED;
+		return FALSE;
 	}
 	sc.sc_filelen += sc.sc_bufposition;
 
 	if (lseek(sc.sc_fd, 0, SEEK_SET) < 0) {
 		ERRMSG("Can't seek the pfn file %s).", sc.sc_filename);
-		return FAILED;
+		return FALSE;
 	}
 	sc.sc_fileposition = 0;
 	sc.sc_bufposition = sc.sc_buflen; /* trigger 1st read */
-	return COMPLETED;
+	return TRUE;
 }
 
 int
@@ -6574,11 +6671,11 @@ create_2nd_bitmap(struct cycle *cycle)
 
 	/* --exclude-unused-vm means exclude vmemmap page structures for unused pages */
 	if (info->flag_excludevm) {
-		if (init_save_control() == FAILED)
+		if (!init_save_control())
 			return FALSE;
-		if (find_unused_vmemmap_pages() == FAILED)
+		if (!find_unused_vmemmap_pages())
 			return FALSE;
-		if (reset_save_control() == FAILED)
+		if (!reset_save_control())
 			return FALSE;
 		delete_unused_vmemmap_pages();
 		finalize_save_control();
@@ -6836,10 +6933,17 @@ write_elf_header(struct cache_data *cd_header)
 			ERRMSG("Can't get ehdr64.\n");
 			goto out;
 		}
+
+		/* For PT_NOTE */
+		num_loads_dumpfile++;
+
 		/*
-		 * PT_NOTE(1) + PT_LOAD(1+)
+		 * Extended Numbering support
+		 * See include/uapi/linux/elf.h and elf(5) for more information.
 		 */
-		ehdr64.e_phnum = 1 + num_loads_dumpfile;
+		ehdr64.e_phnum = (num_loads_dumpfile >= PN_XNUM) ?
+					PN_XNUM : num_loads_dumpfile;
+
 	} else {                /* ELF32 */
 		if (!get_elf32_ehdr(info->fd_memory,
 				    info->name_memory, &ehdr32)) {
@@ -6850,20 +6954,6 @@ write_elf_header(struct cache_data *cd_header)
 		 * PT_NOTE(1) + PT_LOAD(1+)
 		 */
 		ehdr32.e_phnum = 1 + num_loads_dumpfile;
-	}
-
-	/*
-	 * Write an ELF header.
-	 */
-	if (is_elf64_memory()) { /* ELF64 */
-		if (!write_buffer(info->fd_dumpfile, 0, &ehdr64, sizeof(ehdr64),
-		    info->name_dumpfile))
-			goto out;
-
-	} else {                /* ELF32 */
-		if (!write_buffer(info->fd_dumpfile, 0, &ehdr32, sizeof(ehdr32),
-		    info->name_dumpfile))
-			goto out;
 	}
 
 	/*
@@ -6899,15 +6989,12 @@ write_elf_header(struct cache_data *cd_header)
 	if (is_elf64_memory()) { /* ELF64 */
 		cd_header->offset    = sizeof(ehdr64);
 		offset_note_dumpfile = sizeof(ehdr64)
-		    + sizeof(Elf64_Phdr) * ehdr64.e_phnum;
+		    + sizeof(Elf64_Phdr) * num_loads_dumpfile;
 	} else {
 		cd_header->offset    = sizeof(ehdr32);
 		offset_note_dumpfile = sizeof(ehdr32)
 		    + sizeof(Elf32_Phdr) * ehdr32.e_phnum;
 	}
-	offset_note_memory = note.p_offset;
-	note.p_offset      = offset_note_dumpfile;
-	size_note          = note.p_filesz;
 
 	/*
 	 * Reserve a space to store the whole program headers.
@@ -6915,6 +7002,35 @@ write_elf_header(struct cache_data *cd_header)
 	if (!reserve_diskspace(cd_header->fd, cd_header->offset,
 				offset_note_dumpfile, cd_header->file_name))
 		goto out;
+
+	/*
+	 * Write the initial section header just after the program headers
+	 * if necessary. This order is not typical, but looks enough for now.
+	 */
+	if (is_elf64_memory() && ehdr64.e_phnum == PN_XNUM) {
+		Elf64_Shdr shdr64;
+
+		ehdr64.e_shoff = offset_note_dumpfile;
+		ehdr64.e_shentsize = sizeof(shdr64);
+		ehdr64.e_shnum = 1;
+		ehdr64.e_shstrndx = SHN_UNDEF;
+
+		memset(&shdr64, 0, sizeof(shdr64));
+		shdr64.sh_type = SHT_NULL;
+		shdr64.sh_size = ehdr64.e_shnum;
+		shdr64.sh_link = ehdr64.e_shstrndx;
+		shdr64.sh_info = num_loads_dumpfile;
+
+		if (!write_buffer(info->fd_dumpfile, offset_note_dumpfile,
+				&shdr64, sizeof(shdr64), info->name_dumpfile))
+			goto out;
+
+		offset_note_dumpfile += sizeof(shdr64);
+	}
+
+	offset_note_memory = note.p_offset;
+	note.p_offset      = offset_note_dumpfile;
+	size_note          = note.p_filesz;
 
 	/*
 	 * Modify the note size in PT_NOTE header to accomodate eraseinfo data.
@@ -6931,6 +7047,20 @@ write_elf_header(struct cache_data *cd_header)
 
 	if (!write_elf_phdr(cd_header, &note))
 		goto out;
+
+	/*
+	 * Write the ELF header.
+	 */
+	if (is_elf64_memory()) { /* ELF64 */
+		if (!write_buffer(info->fd_dumpfile, 0, &ehdr64, sizeof(ehdr64),
+		    info->name_dumpfile))
+			goto out;
+
+	} else {                 /* ELF32 */
+		if (!write_buffer(info->fd_dumpfile, 0, &ehdr32, sizeof(ehdr32),
+		    info->name_dumpfile))
+			goto out;
+	}
 
 	/*
 	 * Write a PT_NOTE segment.
@@ -7316,7 +7446,8 @@ create_dump_bitmap(void)
 		if (!prepare_bitmap2_buffer())
 			goto out;
 
-		info->num_dumpable = get_num_dumpable_cyclic();
+		if (!(info->num_dumpable = get_num_dumpable_cyclic()))
+			goto out;
 
 		if (!info->flag_elf_dumpfile)
 			free_bitmap2_buffer();
@@ -7334,7 +7465,8 @@ create_dump_bitmap(void)
 		if (!create_2nd_bitmap(&cycle))
 			goto out;
 
-		info->num_dumpable = get_num_dumpable_cyclic();
+		if (!(info->num_dumpable = get_num_dumpable_cyclic()))
+			goto out;
 	}
 
 	ret = TRUE;
@@ -7522,7 +7654,7 @@ write_elf_pages_cyclic(struct cache_data *cd_header, struct cache_data *cd_page)
 	 */
 	if (info->flag_cyclic) {
 		pfn_zero = pfn_cache = pfn_cache_private = 0;
-		pfn_user = pfn_free = pfn_hwpoison = 0;
+		pfn_user = pfn_free = pfn_hwpoison = pfn_offline = 0;
 		pfn_memhole = info->max_mapnr;
 	}
 
@@ -7567,6 +7699,9 @@ write_elf_pages_cyclic(struct cache_data *cd_header, struct cache_data *cd_page)
 			}
 
 			for (pfn = MAX(pfn_start, cycle.start_pfn); pfn < cycle.end_pfn; pfn++) {
+				if (info->flag_cyclic)
+					pfn_memhole--;
+
 				if (!is_dumpable(info->bitmap2, pfn, &cycle)) {
 					num_excluded++;
 					if ((pfn == pfn_end - 1) && frac_tail)
@@ -7610,6 +7745,9 @@ write_elf_pages_cyclic(struct cache_data *cd_header, struct cache_data *cd_page)
 					num_excluded = 0;
 					continue;
 				}
+
+				/* The number of pages excluded actually in ELF format */
+				pfn_elf_excluded += num_excluded;
 
 				/*
 				 * If the number of the contiguous pages to be excluded
@@ -7662,6 +7800,9 @@ write_elf_pages_cyclic(struct cache_data *cd_header, struct cache_data *cd_page)
 				filesz = page_size;
 			}
 		}
+
+		/* The number of pages excluded actually in ELF format */
+		pfn_elf_excluded += num_excluded;
 
 		/*
 		 * Write the last PT_LOAD.
@@ -7863,10 +8004,6 @@ kdump_thread_function_cyclic(void *arg) {
 #ifdef USELZO
 	lzo_bytep wrkmem = WRKMEM_PARALLEL(kdump_thread_args->thread_num);
 #endif
-#ifdef USESNAPPY
-	unsigned long len_buf_out_snappy =
-				snappy_max_compressed_length(info->page_size);
-#endif
 
 	buf = BUF_PARALLEL(kdump_thread_args->thread_num);
 	buf_out = BUF_OUT_PARALLEL(kdump_thread_args->thread_num);
@@ -7988,7 +8125,7 @@ kdump_thread_function_cyclic(void *arg) {
 #ifdef USESNAPPY
 			} else if ((info->flag_compress
 				    & DUMP_DH_COMPRESSED_SNAPPY)
-				   && ((size_out = len_buf_out_snappy),
+				   && ((size_out = kdump_thread_args->len_buf_out),
 				       snappy_compress((char *)buf,
 						       info->page_size,
 						       (char *)buf_out,
@@ -8270,35 +8407,32 @@ write_kdump_pages_cyclic(struct cache_data *cd_header, struct cache_data *cd_pag
 	unsigned long len_buf_out;
 	struct timespec ts_start;
 	const off_t failed = (off_t)-1;
-	unsigned long len_buf_out_zlib, len_buf_out_lzo, len_buf_out_snappy;
-
 	int ret = FALSE;
+	z_stream z_stream, *stream = NULL;
+#ifdef USELZO
+	lzo_bytep wrkmem = NULL;
+#endif
 
 	if (info->flag_elf_dumpfile)
 		return FALSE;
 
-	len_buf_out_zlib = len_buf_out_lzo = len_buf_out_snappy = 0;
+	if (info->flag_compress & DUMP_DH_COMPRESSED_ZLIB) {
+		if (!initialize_zlib(&z_stream, Z_BEST_SPEED)) {
+			ERRMSG("Can't initialize the zlib stream.\n");
+			goto out;
+		}
+		stream = &z_stream;
+	}
 
 #ifdef USELZO
-	lzo_bytep wrkmem;
-
 	if ((wrkmem = malloc(LZO1X_1_MEM_COMPRESS)) == NULL) {
 		ERRMSG("Can't allocate memory for the working memory. %s\n",
 		       strerror(errno));
 		goto out;
 	}
-
-	len_buf_out_lzo = info->page_size + info->page_size / 16 + 64 + 3;
-#endif
-#ifdef USESNAPPY
-	len_buf_out_snappy = snappy_max_compressed_length(info->page_size);
 #endif
 
-	len_buf_out_zlib = compressBound(info->page_size);
-
-	len_buf_out = MAX(len_buf_out_zlib,
-			  MAX(len_buf_out_lzo,
-			      len_buf_out_snappy));
+	len_buf_out = calculate_len_buf_out(info->page_size);
 
 	if ((buf_out = malloc(len_buf_out)) == NULL) {
 		ERRMSG("Can't allocate memory for the compression buffer. %s\n",
@@ -8364,8 +8498,8 @@ write_kdump_pages_cyclic(struct cache_data *cd_header, struct cache_data *cd_pag
 		size_out = len_buf_out;
 		if ((info->flag_compress & DUMP_DH_COMPRESSED_ZLIB)
 		    && ((size_out = len_buf_out),
-			compress2(buf_out, &size_out, buf, info->page_size,
-				  Z_BEST_SPEED) == Z_OK)
+			compress_mdf(stream, buf_out, &size_out,
+				buf, info->page_size, Z_BEST_SPEED) == Z_OK)
 		    && (size_out < info->page_size)) {
 			pd.flags = DUMP_DH_COMPRESSED_ZLIB;
 			pd.size  = size_out;
@@ -8381,7 +8515,7 @@ write_kdump_pages_cyclic(struct cache_data *cd_header, struct cache_data *cd_pag
 #endif
 #ifdef USESNAPPY
 		} else if ((info->flag_compress & DUMP_DH_COMPRESSED_SNAPPY)
-			   && ((size_out = len_buf_out_snappy),
+			   && ((size_out = len_buf_out),
 			       snappy_compress((char *)buf, info->page_size,
 					       (char *)buf_out,
 					       (size_t *)&size_out)
@@ -8413,6 +8547,8 @@ out:
 	if (wrkmem != NULL)
 		free(wrkmem);
 #endif
+	if (stream != NULL)
+		finalize_zlib(stream);
 
 	print_progress(PROGRESS_COPY, num_dumped, info->num_dumpable, &ts_start);
 	print_execution_time(PROGRESS_COPY, &ts_start);
@@ -8804,7 +8940,7 @@ write_kdump_pages_and_bitmap_cyclic(struct cache_data *cd_header, struct cache_d
 		 * Reset counter for debug message.
 		 */
 		pfn_zero = pfn_cache = pfn_cache_private = 0;
-		pfn_user = pfn_free = pfn_hwpoison = 0;
+		pfn_user = pfn_free = pfn_hwpoison = pfn_offline = 0;
 		pfn_memhole = info->max_mapnr;
 
 		/*
@@ -9749,13 +9885,14 @@ print_report(void)
 	pfn_original = info->max_mapnr - pfn_memhole;
 
 	pfn_excluded = pfn_zero + pfn_cache + pfn_cache_private
-	    + pfn_user + pfn_free + pfn_hwpoison;
-	shrinking = (pfn_original - pfn_excluded) * 100;
-	shrinking = shrinking / pfn_original;
+	    + pfn_user + pfn_free + pfn_hwpoison + pfn_offline;
 
 	REPORT_MSG("\n");
 	REPORT_MSG("Original pages  : 0x%016llx\n", pfn_original);
 	REPORT_MSG("  Excluded pages   : 0x%016llx\n", pfn_excluded);
+	if (info->flag_elf_dumpfile)
+		REPORT_MSG("     in ELF format : 0x%016llx\n",
+			pfn_elf_excluded);
 	REPORT_MSG("    Pages filled with zero  : 0x%016llx\n", pfn_zero);
 	REPORT_MSG("    Non-private cache pages : 0x%016llx\n", pfn_cache);
 	REPORT_MSG("    Private cache pages     : 0x%016llx\n",
@@ -9763,10 +9900,23 @@ print_report(void)
 	REPORT_MSG("    User process data pages : 0x%016llx\n", pfn_user);
 	REPORT_MSG("    Free pages              : 0x%016llx\n", pfn_free);
 	REPORT_MSG("    Hwpoison pages          : 0x%016llx\n", pfn_hwpoison);
+	REPORT_MSG("    Offline pages           : 0x%016llx\n", pfn_offline);
 	REPORT_MSG("  Remaining pages  : 0x%016llx\n",
 	    pfn_original - pfn_excluded);
-	REPORT_MSG("  (The number of pages is reduced to %lld%%.)\n",
-	    shrinking);
+
+	if (info->flag_elf_dumpfile) {
+		REPORT_MSG("     in ELF format : 0x%016llx\n",
+			pfn_original - pfn_elf_excluded);
+
+		pfn_excluded = pfn_elf_excluded;
+	}
+
+	if (pfn_original != 0) {
+		shrinking = (pfn_original - pfn_excluded) * 100;
+		shrinking = shrinking / pfn_original;
+		REPORT_MSG("  (The number of pages is reduced to %lld%%.)\n",
+		    shrinking);
+	}
 	REPORT_MSG("Memory Hole     : 0x%016llx\n", pfn_memhole);
 	REPORT_MSG("--------------------------------------------------\n");
 	REPORT_MSG("Total pages     : 0x%016llx\n", info->max_mapnr);
@@ -9790,7 +9940,7 @@ print_mem_usage(void)
 	pfn_original = info->max_mapnr - pfn_memhole;
 
 	pfn_excluded = pfn_zero + pfn_cache + pfn_cache_private
-	    + pfn_user + pfn_free + pfn_hwpoison;
+	    + pfn_user + pfn_free + pfn_hwpoison + pfn_offline;
 	shrinking = (pfn_original - pfn_excluded) * 100;
 	shrinking = shrinking / pfn_original;
 	total_size = info->page_size * pfn_original;
@@ -10003,6 +10153,10 @@ writeout_multiple_dumpfiles(void)
 			info->split_start_pfn = SPLITTING_START_PFN(i);
 			info->split_end_pfn   = SPLITTING_END_PFN(i);
 
+			if (!info->flag_cyclic) {
+				info->bitmap1->fd = info->fd_bitmap;
+				info->bitmap2->fd = info->fd_bitmap;
+			}
 			if (!reopen_dump_memory())
 				exit(1);
 			if ((status = writeout_dumpfile()) == FALSE)
@@ -10064,7 +10218,7 @@ create_dumpfile(void)
 
 	/* create an array of translations from pfn to vmemmap pages */
 	if (info->flag_excludevm) {
-		if (find_vmemmap() == FAILED) {
+		if (!find_vmemmap()) {
 			ERRMSG("Can't find vmemmap pages\n");
 			info->flag_excludevm = 0;
 		}
@@ -11457,6 +11611,13 @@ main(int argc, char *argv[])
 		show_version();
 		return COMPLETED;
 	}
+
+	DEBUG_MSG("makedumpfile: version " VERSION " (released on " RELEASE_DATE ")\n");
+	DEBUG_MSG("command line: ");
+	for (i = 0; i < argc; i++) {
+		DEBUG_MSG("%s ", argv[i]);
+	}
+	DEBUG_MSG("\n\n");
 
 	if (elf_version(EV_CURRENT) == EV_NONE ) {
 		/*

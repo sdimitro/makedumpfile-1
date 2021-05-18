@@ -19,7 +19,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
 
 --- a/arch/arm64.c
 +++ b/arch/arm64.c
-@@ -386,6 +386,43 @@ get_stext_symbol(void)
+@@ -345,6 +345,43 @@ get_stext_symbol(void)
  	return(found ? kallsym : FALSE);
  }
  
@@ -63,7 +63,7 @@ Bug-Ubuntu: https://bugs.launchpad.net/bugs/1879214
  int
  get_machdep_info_arm64(void)
  {
-@@ -439,27 +476,11 @@ get_xen_info_arm64(void)
+@@ -398,27 +435,11 @@ get_xen_info_arm64(void)
  int
  get_versiondep_info_arm64(void)
  {

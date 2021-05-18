@@ -25,6 +25,7 @@ function wait_for_systemd_service()
 		! systemctl is-failed kdump-tools &&
 		[ $TIMEOUT -gt 0 ] ; do
 			TIMEOUT=$((TIMEOUT - 1))
+			sleep 1
 	done
 }
 
@@ -57,7 +58,12 @@ case "$AUTOPKGTEST_REBOOT_MARK" in
 	report "waiting for kdump-tools systemd service"
 	wait_for_systemd_service
 	if systemctl is-failed kdump-tools; then
+		systemctl status kdump-tools
 		error "kdump-tools systemd service failed"
+	fi
+	if ! systemctl is-active kdump-tools; then
+		systemctl status kdump-tools
+		error "kdump-tools systemd service is not active"
 	fi
 	report "checking kdump-config status"
 	if ! kdump-config status | grep ": ready to kdump" > /dev/null; then

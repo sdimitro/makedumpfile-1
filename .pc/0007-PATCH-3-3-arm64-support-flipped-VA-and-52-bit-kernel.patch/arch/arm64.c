@@ -307,47 +307,6 @@ get_phys_base_arm64(void)
 	return FALSE;
 }
 
-unsigned long
-get_kaslr_offset_arm64(unsigned long vaddr)
-{
-	unsigned int i;
-	char buf[BUFSIZE_FGETS], *endp;
-
-	if (!info->kaslr_offset && info->file_vmcoreinfo) {
-		if (fseek(info->file_vmcoreinfo, 0, SEEK_SET) < 0) {
-			ERRMSG("Can't seek the vmcoreinfo file(%s). %s\n",
-					info->name_vmcoreinfo, strerror(errno));
-			return FALSE;
-		}
-
-		while (fgets(buf, BUFSIZE_FGETS, info->file_vmcoreinfo)) {
-			i = strlen(buf);
-			if (!i)
-				break;
-			if (buf[i - 1] == '\n')
-				buf[i - 1] = '\0';
-			if (strncmp(buf, STR_KERNELOFFSET,
-					strlen(STR_KERNELOFFSET)) == 0) {
-				info->kaslr_offset =
-					strtoul(buf+strlen(STR_KERNELOFFSET),&endp,16);
-				DEBUG_MSG("info->kaslr_offset: %lx\n", info->kaslr_offset);
-			}
-		}
-	}
-
-	if (vaddr >= __START_KERNEL_map &&
-			vaddr < __START_KERNEL_map + info->kaslr_offset) {
-		DEBUG_MSG("info->kaslr_offset: %lx\n", info->kaslr_offset);
-		return info->kaslr_offset;
-	} else {
-		/*
-		 * TODO: we need to check if it is vmalloc/vmmemmap/module
-		 * address, we will have different offset
-		 */
-		return 0;
-	}
-}
-
 ulong
 get_stext_symbol(void)
 {
@@ -384,6 +343,43 @@ get_stext_symbol(void)
 	fclose(fp);
 
 	return(found ? kallsym : FALSE);
+}
+
+static int
+get_va_bits_from_stext_arm64(void)
+{
+	ulong _stext;
+
+	_stext = get_stext_symbol();
+	if (!_stext) {
+		ERRMSG("Can't get the symbol of _stext.\n");
+		return FALSE;
+	}
+
+	/*
+	 * Derive va_bits as per arch/arm64/Kconfig. Note that this is a
+	 * best case approximation at the moment, as there can be
+	 * inconsistencies in this calculation (for e.g., for 52-bit
+	 * kernel VA case, the 48th bit is set in * the _stext symbol).
+	 */
+	if ((_stext & PAGE_OFFSET_48) == PAGE_OFFSET_48) {
+		va_bits = 48;
+	} else if ((_stext & PAGE_OFFSET_47) == PAGE_OFFSET_47) {
+		va_bits = 47;
+	} else if ((_stext & PAGE_OFFSET_42) == PAGE_OFFSET_42) {
+		va_bits = 42;
+	} else if ((_stext & PAGE_OFFSET_39) == PAGE_OFFSET_39) {
+		va_bits = 39;
+	} else if ((_stext & PAGE_OFFSET_36) == PAGE_OFFSET_36) {
+		va_bits = 36;
+	} else {
+		ERRMSG("Cannot find a proper _stext for calculating VA_BITS\n");
+		return FALSE;
+	}
+
+	DEBUG_MSG("va_bits       : %d (guess from _stext)\n", va_bits);
+
+	return TRUE;
 }
 
 int
@@ -439,27 +435,11 @@ get_xen_info_arm64(void)
 int
 get_versiondep_info_arm64(void)
 {
-	ulong _stext;
-
-	_stext = get_stext_symbol();
-	if (!_stext) {
-		ERRMSG("Can't get the symbol of _stext.\n");
-		return FALSE;
-	}
-
-	/* Derive va_bits as per arch/arm64/Kconfig */
-	if ((_stext & PAGE_OFFSET_36) == PAGE_OFFSET_36) {
-		va_bits = 36;
-	} else if ((_stext & PAGE_OFFSET_39) == PAGE_OFFSET_39) {
-		va_bits = 39;
-	} else if ((_stext & PAGE_OFFSET_42) == PAGE_OFFSET_42) {
-		va_bits = 42;
-	} else if ((_stext & PAGE_OFFSET_47) == PAGE_OFFSET_47) {
-		va_bits = 47;
-	} else if ((_stext & PAGE_OFFSET_48) == PAGE_OFFSET_48) {
-		va_bits = 48;
-	} else {
-		ERRMSG("Cannot find a proper _stext for calculating VA_BITS\n");
+	if (NUMBER(VA_BITS) != NOT_FOUND_NUMBER) {
+		va_bits = NUMBER(VA_BITS);
+		DEBUG_MSG("va_bits      : %d (vmcoreinfo)\n", va_bits);
+	} else if (get_va_bits_from_stext_arm64() == FALSE) {
+		ERRMSG("Can't determine va_bits.\n");
 		return FALSE;
 	}
 

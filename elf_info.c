@@ -123,8 +123,11 @@ check_elf_format(int fd, char *filename, int *phnum, unsigned int *num_load)
 	(*num_load) = 0;
 	if ((ehdr64.e_ident[EI_CLASS] == ELFCLASS64)
 	    && (ehdr32.e_ident[EI_CLASS] != ELFCLASS32)) {
-		(*phnum) = ehdr64.e_phnum;
-		for (i = 0; i < ehdr64.e_phnum; i++) {
+		if (!get_elf64_phnum(fd, filename, &ehdr64, phnum)) {
+			ERRMSG("Can't get phnum.\n");
+			return FALSE;
+		}
+		for (i = 0; i < (*phnum); i++) {
 			if (!get_elf64_phdr(fd, filename, i, &load64)) {
 				ERRMSG("Can't find Phdr %d.\n", i);
 				return FALSE;
@@ -169,11 +172,12 @@ dump_Elf_load(Elf64_Phdr *prog, int num_load)
 	pls->file_offset = prog->p_offset;
 	pls->file_size   = prog->p_filesz;
 
-	DEBUG_MSG("LOAD (%d)\n", num_load);
-	DEBUG_MSG("  phys_start : %llx\n", pls->phys_start);
-	DEBUG_MSG("  phys_end   : %llx\n", pls->phys_end);
-	DEBUG_MSG("  virt_start : %llx\n", pls->virt_start);
-	DEBUG_MSG("  virt_end   : %llx\n", pls->virt_end);
+	if (num_load == 0)
+		DEBUG_MSG("%8s %16s %16s %16s %16s\n", "",
+			"phys_start", "phys_end", "virt_start", "virt_end");
+
+	DEBUG_MSG("LOAD[%2d] %16llx %16llx %16llx %16llx\n", num_load,
+		pls->phys_start, pls->phys_end, pls->virt_start, pls->virt_end);
 
 	return TRUE;
 }
@@ -879,13 +883,13 @@ int get_kcore_dump_loads(void)
 				      p->file_offset + p->phys_end - p->phys_start);
 	}
 
+	DEBUG_MSG("%8s %16s %16s %16s %16s\n", "",
+		"phys_start", "phys_end", "virt_start", "virt_end");
 	for (i = 0; i < num_pt_loads; ++i) {
 		struct pt_load_segment *p = &pt_loads[i];
-		DEBUG_MSG("LOAD (%d)\n", i);
-		DEBUG_MSG("  phys_start : %llx\n", p->phys_start);
-		DEBUG_MSG("  phys_end   : %llx\n", p->phys_end);
-		DEBUG_MSG("  virt_start : %llx\n", p->virt_start);
-		DEBUG_MSG("  virt_end   : %llx\n", p->virt_end);
+
+		DEBUG_MSG("LOAD[%2d] %16llx %16llx %16llx %16llx\n", i,
+			p->phys_start, p->phys_end, p->virt_start, p->virt_end);
 	}
 
 	return TRUE;
@@ -986,6 +990,34 @@ is_xen_memory(void)
 }
 
 int
+get_elf64_phnum(int fd, char *filename, Elf64_Ehdr *ehdr, int *phnum)
+{
+	Elf64_Shdr shdr;
+
+	/*
+	 * Extended Numbering support
+	 * See include/uapi/linux/elf.h and elf(5) for more information.
+	 */
+	if (ehdr->e_phnum == PN_XNUM) {
+		if (lseek(fd, ehdr->e_shoff, SEEK_SET) < 0) {
+			ERRMSG("Can't seek %s at 0x%llx. %s\n", filename,
+				(ulonglong)ehdr->e_shoff, strerror(errno));
+			return FALSE;
+		}
+		if (read(fd, &shdr, ehdr->e_shentsize) != ehdr->e_shentsize) {
+			ERRMSG("Can't read %s at 0x%llx. %s\n", filename,
+				(ulonglong)ehdr->e_shoff, strerror(errno));
+			return FALSE;
+		}
+
+		*phnum = shdr.sh_info;
+	} else
+		*phnum = ehdr->e_phnum;
+
+	return TRUE;
+}
+
+int
 get_phnum_memory(void)
 {
 	int phnum;
@@ -997,7 +1029,10 @@ get_phnum_memory(void)
 			ERRMSG("Can't get ehdr64.\n");
 			return FALSE;
 		}
-		phnum = ehdr64.e_phnum;
+		if (!get_elf64_phnum(fd_memory, name_memory, &ehdr64, &phnum)) {
+			ERRMSG("Can't get phnum.\n");
+			return FALSE;
+		}
 	} else {                /* ELF32 */
 		if (!get_elf32_ehdr(fd_memory, name_memory, &ehdr32)) {
 			ERRMSG("Can't get ehdr32.\n");
