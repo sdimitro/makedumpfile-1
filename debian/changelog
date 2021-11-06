@@ -1,3 +1,13 @@
+makedumpfile (1:1.6.7-1ubuntu2.3) focal; urgency=medium
+
+  * makedumpfile falls back to cp with the 5.11 kernel (LP: #1942784)
+    -d/p/0008-PATCH-Retrieve-MAX_PHYSMEM_BITS-from-vmcoreinfo.patch
+  * makedumpfile doesn't create dmesg file on 5.10+ kernels (LP: #1921403)
+    -d/p/0009-PATCH-1-2-printk-add-support-for-lockless-ringbuffer.patch
+    -d/p/0010-PATCH-2-2-printk-use-committed-finalized-state-value.patch
+
+ -- Ioanna Alifieraki <ioanna-maria.alifieraki@canonical.com>  Mon, 18 Oct 2021 16:43:56 +0000
+
 makedumpfile (1:1.6.7-1ubuntu2.2) focal; urgency=medium
 
   * Fix makedumpfile failure on arm64 with 5.4 kernels (LP: #1879214)
