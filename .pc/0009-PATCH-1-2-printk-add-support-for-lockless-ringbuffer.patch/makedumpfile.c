@@ -93,7 +93,6 @@ mdf_pfn_t pfn_zero;
 mdf_pfn_t pfn_memhole;
 mdf_pfn_t pfn_cache;
 mdf_pfn_t pfn_cache_private;
-mdf_pfn_t pfn_private_filter_pages;
 mdf_pfn_t pfn_user;
 mdf_pfn_t pfn_free;
 mdf_pfn_t pfn_hwpoison;
@@ -287,15 +286,6 @@ is_cache_page(unsigned long flags)
 	 */
 	if ((NUMBER(PG_swapbacked) == NOT_FOUND_NUMBER || isSwapBacked(flags))
 	    && isSwapCache(flags))
-		return TRUE;
-
-	return FALSE;
-}
-
-static int
-is_filtered_page(unsigned long filter, unsigned long flags, unsigned long private)
-{
-	if (isPrivate(flags) && private == filter)
 		return TRUE;
 
 	return FALSE;
@@ -1565,7 +1555,6 @@ get_symbol_info(void)
 	SYMBOL_INIT(node_data, "node_data");
 	SYMBOL_INIT(pgdat_list, "pgdat_list");
 	SYMBOL_INIT(contig_page_data, "contig_page_data");
-	SYMBOL_INIT(prb, "prb");
 	SYMBOL_INIT(log_buf, "log_buf");
 	SYMBOL_INIT(log_buf_len, "log_buf_len");
 	SYMBOL_INIT(log_end, "log_end");
@@ -1982,47 +1971,16 @@ get_structure_info(void)
 	OFFSET_INIT(elf64_phdr.p_memsz, "elf64_phdr", "p_memsz");
 
 	SIZE_INIT(printk_log, "printk_log");
-	SIZE_INIT(printk_ringbuffer, "printk_ringbuffer");
-	if ((SIZE(printk_ringbuffer) != NOT_FOUND_STRUCTURE)) {
-		info->flag_use_printk_ringbuffer = TRUE;
-		info->flag_use_printk_log = FALSE;
-
-		OFFSET_INIT(printk_ringbuffer.desc_ring, "printk_ringbuffer", "desc_ring");
-		OFFSET_INIT(printk_ringbuffer.text_data_ring, "printk_ringbuffer", "text_data_ring");
-
-		OFFSET_INIT(prb_desc_ring.count_bits, "prb_desc_ring", "count_bits");
-		OFFSET_INIT(prb_desc_ring.descs, "prb_desc_ring", "descs");
-		OFFSET_INIT(prb_desc_ring.infos, "prb_desc_ring", "infos");
-		OFFSET_INIT(prb_desc_ring.head_id, "prb_desc_ring", "head_id");
-		OFFSET_INIT(prb_desc_ring.tail_id, "prb_desc_ring", "tail_id");
-
-		SIZE_INIT(prb_desc, "prb_desc");
-		OFFSET_INIT(prb_desc.state_var, "prb_desc", "state_var");
-		OFFSET_INIT(prb_desc.text_blk_lpos, "prb_desc", "text_blk_lpos");
-
-		OFFSET_INIT(prb_data_blk_lpos.begin, "prb_data_blk_lpos", "begin");
-		OFFSET_INIT(prb_data_blk_lpos.next, "prb_data_blk_lpos", "next");
-
-		OFFSET_INIT(prb_data_ring.size_bits, "prb_data_ring", "size_bits");
-		OFFSET_INIT(prb_data_ring.data, "prb_data_ring", "data");
-
-		SIZE_INIT(printk_info, "printk_info");
-		OFFSET_INIT(printk_info.ts_nsec, "printk_info", "ts_nsec");
-		OFFSET_INIT(printk_info.text_len, "printk_info", "text_len");
-
-		OFFSET_INIT(atomic_long_t.counter, "atomic_long_t", "counter");
-	} else if (SIZE(printk_log) != NOT_FOUND_STRUCTURE) {
+	if (SIZE(printk_log) != NOT_FOUND_STRUCTURE) {
 		/*
 		 * In kernel 3.11-rc4 the log structure name was renamed
 		 * to "printk_log".
 		 */
-		info->flag_use_printk_ringbuffer = FALSE;
 		info->flag_use_printk_log = TRUE;
 		OFFSET_INIT(printk_log.ts_nsec, "printk_log", "ts_nsec");
 		OFFSET_INIT(printk_log.len, "printk_log", "len");
 		OFFSET_INIT(printk_log.text_len, "printk_log", "text_len");
 	} else {
-		info->flag_use_printk_ringbuffer = FALSE;
 		info->flag_use_printk_log = FALSE;
 		SIZE_INIT(printk_log, "log");
 		OFFSET_INIT(printk_log.ts_nsec, "log", "ts_nsec");
@@ -2233,7 +2191,6 @@ write_vmcoreinfo_data(void)
 	WRITE_SYMBOL("node_data", node_data);
 	WRITE_SYMBOL("pgdat_list", pgdat_list);
 	WRITE_SYMBOL("contig_page_data", contig_page_data);
-	WRITE_SYMBOL("prb", prb);
 	WRITE_SYMBOL("log_buf", log_buf);
 	WRITE_SYMBOL("log_buf_len", log_buf_len);
 	WRITE_SYMBOL("log_end", log_end);
@@ -2265,11 +2222,7 @@ write_vmcoreinfo_data(void)
 	WRITE_STRUCTURE_SIZE("node_memblk_s", node_memblk_s);
 	WRITE_STRUCTURE_SIZE("nodemask_t", nodemask_t);
 	WRITE_STRUCTURE_SIZE("pageflags", pageflags);
-	if (info->flag_use_printk_ringbuffer) {
-		WRITE_STRUCTURE_SIZE("printk_ringbuffer", printk_ringbuffer);
-		WRITE_STRUCTURE_SIZE("prb_desc", prb_desc);
-		WRITE_STRUCTURE_SIZE("printk_info", printk_info);
-	} else if (info->flag_use_printk_log)
+	if (info->flag_use_printk_log)
 		WRITE_STRUCTURE_SIZE("printk_log", printk_log);
 	else
 		WRITE_STRUCTURE_SIZE("log", printk_log);
@@ -2315,30 +2268,7 @@ write_vmcoreinfo_data(void)
 	WRITE_MEMBER_OFFSET("vm_struct.addr", vm_struct.addr);
 	WRITE_MEMBER_OFFSET("vmap_area.va_start", vmap_area.va_start);
 	WRITE_MEMBER_OFFSET("vmap_area.list", vmap_area.list);
-	if (info->flag_use_printk_ringbuffer) {
-		WRITE_MEMBER_OFFSET("printk_ringbuffer.desc_ring", printk_ringbuffer.desc_ring);
-		WRITE_MEMBER_OFFSET("printk_ringbuffer.text_data_ring", printk_ringbuffer.text_data_ring);
-
-		WRITE_MEMBER_OFFSET("prb_desc_ring.count_bits", prb_desc_ring.count_bits);
-		WRITE_MEMBER_OFFSET("prb_desc_ring.descs", prb_desc_ring.descs);
-		WRITE_MEMBER_OFFSET("prb_desc_ring.infos", prb_desc_ring.infos);
-		WRITE_MEMBER_OFFSET("prb_desc_ring.head_id", prb_desc_ring.head_id);
-		WRITE_MEMBER_OFFSET("prb_desc_ring.tail_id", prb_desc_ring.tail_id);
-
-		WRITE_MEMBER_OFFSET("prb_desc.state_var", prb_desc.state_var);
-		WRITE_MEMBER_OFFSET("prb_desc.text_blk_lpos", prb_desc.text_blk_lpos);
-
-		WRITE_MEMBER_OFFSET("prb_data_blk_lpos.begin", prb_data_blk_lpos.begin);
-		WRITE_MEMBER_OFFSET("prb_data_blk_lpos.next", prb_data_blk_lpos.next);
-
-		WRITE_MEMBER_OFFSET("prb_data_ring.size_bits", prb_data_ring.size_bits);
-		WRITE_MEMBER_OFFSET("prb_data_ring.data", prb_data_ring.data);
-
-		WRITE_MEMBER_OFFSET("printk_info.ts_nsec", printk_info.ts_nsec);
-		WRITE_MEMBER_OFFSET("printk_info.text_len", printk_info.text_len);
-
-		WRITE_MEMBER_OFFSET("atomic_long_t.counter", atomic_long_t.counter);
-	} else if (info->flag_use_printk_log) {
+	if (info->flag_use_printk_log) {
 		WRITE_MEMBER_OFFSET("printk_log.ts_nsec", printk_log.ts_nsec);
 		WRITE_MEMBER_OFFSET("printk_log.len", printk_log.len);
 		WRITE_MEMBER_OFFSET("printk_log.text_len", printk_log.text_len);
@@ -2677,7 +2607,6 @@ read_vmcoreinfo(void)
 	READ_SYMBOL("node_data", node_data);
 	READ_SYMBOL("pgdat_list", pgdat_list);
 	READ_SYMBOL("contig_page_data", contig_page_data);
-	READ_SYMBOL("prb", prb);
 	READ_SYMBOL("log_buf", log_buf);
 	READ_SYMBOL("log_buf_len", log_buf_len);
 	READ_SYMBOL("log_end", log_end);
@@ -2756,43 +2685,12 @@ read_vmcoreinfo(void)
 	READ_MEMBER_OFFSET("cpu_spec.mmu_features", cpu_spec.mmu_features);
 
 	READ_STRUCTURE_SIZE("printk_log", printk_log);
-	READ_STRUCTURE_SIZE("printk_ringbuffer", printk_ringbuffer);
-	if (SIZE(printk_ringbuffer) != NOT_FOUND_STRUCTURE) {
-		info->flag_use_printk_ringbuffer = TRUE;
-		info->flag_use_printk_log = FALSE;
-
-		READ_MEMBER_OFFSET("printk_ringbuffer.desc_ring", printk_ringbuffer.desc_ring);
-		READ_MEMBER_OFFSET("printk_ringbuffer.text_data_ring", printk_ringbuffer.text_data_ring);
-
-		READ_MEMBER_OFFSET("prb_desc_ring.count_bits", prb_desc_ring.count_bits);
-		READ_MEMBER_OFFSET("prb_desc_ring.descs", prb_desc_ring.descs);
-		READ_MEMBER_OFFSET("prb_desc_ring.infos", prb_desc_ring.infos);
-		READ_MEMBER_OFFSET("prb_desc_ring.head_id", prb_desc_ring.head_id);
-		READ_MEMBER_OFFSET("prb_desc_ring.tail_id", prb_desc_ring.tail_id);
-
-		READ_STRUCTURE_SIZE("prb_desc", prb_desc);
-		READ_MEMBER_OFFSET("prb_desc.state_var", prb_desc.state_var);
-		READ_MEMBER_OFFSET("prb_desc.text_blk_lpos", prb_desc.text_blk_lpos);
-
-		READ_MEMBER_OFFSET("prb_data_blk_lpos.begin", prb_data_blk_lpos.begin);
-		READ_MEMBER_OFFSET("prb_data_blk_lpos.next", prb_data_blk_lpos.next);
-
-		READ_MEMBER_OFFSET("prb_data_ring.size_bits", prb_data_ring.size_bits);
-		READ_MEMBER_OFFSET("prb_data_ring.data", prb_data_ring.data);
-
-		READ_STRUCTURE_SIZE("printk_info", printk_info);
-		READ_MEMBER_OFFSET("printk_info.ts_nsec", printk_info.ts_nsec);
-		READ_MEMBER_OFFSET("printk_info.text_len", printk_info.text_len);
-
-		READ_MEMBER_OFFSET("atomic_long_t.counter", atomic_long_t.counter);
-	} else if (SIZE(printk_log) != NOT_FOUND_STRUCTURE) {
-		info->flag_use_printk_ringbuffer = FALSE;
+	if (SIZE(printk_log) != NOT_FOUND_STRUCTURE) {
 		info->flag_use_printk_log = TRUE;
 		READ_MEMBER_OFFSET("printk_log.ts_nsec", printk_log.ts_nsec);
 		READ_MEMBER_OFFSET("printk_log.len", printk_log.len);
 		READ_MEMBER_OFFSET("printk_log.text_len", printk_log.text_len);
 	} else {
-		info->flag_use_printk_ringbuffer = FALSE;
 		info->flag_use_printk_log = FALSE;
 		READ_STRUCTURE_SIZE("log", printk_log);
 		READ_MEMBER_OFFSET("log.ts_nsec", printk_log.ts_nsec);
@@ -5411,9 +5309,6 @@ dump_dmesg()
 	if (!initial())
 		return FALSE;
 
-	if ((SYMBOL(prb) != NOT_FOUND_SYMBOL))
-		return dump_lockless_dmesg();
-
 	if ((SYMBOL(log_buf) == NOT_FOUND_SYMBOL)
 	    || (SYMBOL(log_buf_len) == NOT_FOUND_SYMBOL)) {
 		ERRMSG("Can't find some symbols for log_buf.\n");
@@ -6225,13 +6120,6 @@ __exclude_unnecessary_pages(unsigned long mem_map,
 				pfn_counter = &pfn_cache_private;
 			else
 				pfn_counter = &pfn_cache;
-		}
-		/*
-		 * Exclude private filter pages
-		 */
-		else if ((info->dump_level & DL_EXCLUDE_CACHE_PRI)
-		    && is_filtered_page(info->private_page_filter, flags, private)) {
-			pfn_counter = &pfn_private_filter_pages;
 		}
 		/*
 		 * Exclude the data page of the user process.
@@ -7769,7 +7657,6 @@ write_elf_pages_cyclic(struct cache_data *cd_header, struct cache_data *cd_page)
 	if (info->flag_cyclic) {
 		pfn_zero = pfn_cache = pfn_cache_private = 0;
 		pfn_user = pfn_free = pfn_hwpoison = pfn_offline = 0;
-		pfn_private_filter_pages = 0;
 		pfn_memhole = info->max_mapnr;
 	}
 
@@ -9056,7 +8943,6 @@ write_kdump_pages_and_bitmap_cyclic(struct cache_data *cd_header, struct cache_d
 		 */
 		pfn_zero = pfn_cache = pfn_cache_private = 0;
 		pfn_user = pfn_free = pfn_hwpoison = pfn_offline = 0;
-		pfn_private_filter_pages = 0;
 		pfn_memhole = info->max_mapnr;
 
 		/*
@@ -10001,7 +9887,7 @@ print_report(void)
 	pfn_original = info->max_mapnr - pfn_memhole;
 
 	pfn_excluded = pfn_zero + pfn_cache + pfn_cache_private
-	    + pfn_user + pfn_free + pfn_hwpoison + pfn_offline + pfn_private_filter_pages;
+	    + pfn_user + pfn_free + pfn_hwpoison + pfn_offline;
 
 	REPORT_MSG("\n");
 	REPORT_MSG("Original pages  : 0x%016llx\n", pfn_original);
@@ -10013,9 +9899,6 @@ print_report(void)
 	REPORT_MSG("    Non-private cache pages : 0x%016llx\n", pfn_cache);
 	REPORT_MSG("    Private cache pages     : 0x%016llx\n",
 	    pfn_cache_private);
-	if (pfn_private_filter_pages != 0)
-		REPORT_MSG("    private filter pages : 0x%016llx\n",
-		    pfn_private_filter_pages);
 	REPORT_MSG("    User process data pages : 0x%016llx\n", pfn_user);
 	REPORT_MSG("    Free pages              : 0x%016llx\n", pfn_free);
 	REPORT_MSG("    Hwpoison pages          : 0x%016llx\n", pfn_hwpoison);
@@ -10059,7 +9942,7 @@ print_mem_usage(void)
 	pfn_original = info->max_mapnr - pfn_memhole;
 
 	pfn_excluded = pfn_zero + pfn_cache + pfn_cache_private
-	    + pfn_user + pfn_free + pfn_hwpoison + pfn_offline + pfn_private_filter_pages;
+	    + pfn_user + pfn_free + pfn_hwpoison + pfn_offline;
 	shrinking = (pfn_original - pfn_excluded) * 100;
 	shrinking = shrinking / pfn_original;
 	total_size = info->page_size * pfn_original;
@@ -10073,9 +9956,6 @@ print_mem_usage(void)
 	    pfn_cache);
 	MSG("PRI_CACHE	%-16llu	yes		Cache pages with private flag\n",
 	    pfn_cache_private);
-	if (pfn_private_filter_pages != 0)
-		MSG("FILTERED 	%-16llu	yes		private filter pages\n",
-		    pfn_private_filter_pages);
 	MSG("USER		%-16llu	yes		User process pages\n", pfn_user);
 	MSG("FREE		%-16llu	yes		Free pages\n", pfn_free);
 	MSG("KERN_DATA	%-16llu	no		Dumpable kernel data \n",
@@ -11565,7 +11445,6 @@ static struct option longopts[] = {
 	{"splitblock-size", required_argument, NULL, OPT_SPLITBLOCK_SIZE},
 	{"work-dir", required_argument, NULL, OPT_WORKING_DIR},
 	{"num-threads", required_argument, NULL, OPT_NUM_THREADS},
-	{"private-page-filter", required_argument, NULL, OPT_PRIVATE_PAGE_FILTER},
 	{0, 0, 0, 0}
 };
 
@@ -11701,22 +11580,6 @@ main(int argc, char *argv[])
 			break;
 		case OPT_EXCLUDE_XEN_DOM:
 			info->flag_exclude_xen_dom = 1;
-			break;
-		case OPT_PRIVATE_PAGE_FILTER:
-			if (info->private_page_filter != 0) {
-				MSG("Only one private filter can be specified\n");
-				MSG("Try `makedumpfile --help' for more information.\n");
-				goto out;
-			} else {
-				char *endp;
-
-				info->private_page_filter = strtoul(optarg, &endp, 0);
-				if (*endp || errno != 0 || info->private_page_filter == 0) {
-					MSG("filter must be a non-zero number\n");
-					goto out;
-				}
-			}
-			MSG("Page filter: 0x%lx\n", info->private_page_filter);
 			break;
 		case OPT_VMLINUX:
 			info->name_vmlinux = optarg;
